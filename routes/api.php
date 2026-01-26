@@ -4,6 +4,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AttendanceController;
+use App\Http\Controllers\Api\V1\LeaveBalanceController;
+use App\Http\Controllers\Api\V1\LeaveRequestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,5 +33,10 @@ Route::prefix('v1')->group(function () {
             Route::post('clock-in', 'clockIn');
             Route::post('clock-out', 'clockOut');
         });
+
+        Route::get('/leaves/balances', [LeaveBalanceController::class, 'index']);
+        Route::get('/leaves/requests', [LeaveRequestController::class, 'index']);
+        Route::post('/leaves/requests', [LeaveRequestController::class, 'store']);
+        Route::delete('/leaves/requests/{id}', [LeaveRequestController::class, 'destroy']);
     });
 });
