@@ -131,6 +131,7 @@ class LeaveRequestResource extends Resource
                             ->numeric()
                             ->readOnly()
                             ->required()
+                            ->minValue(1)
                             ->rules([
                                 fn(Get $get) => function (string $attribute, $value, Closure $fail) use ($get) {
                                     $employeeId = $get('employee_id');
