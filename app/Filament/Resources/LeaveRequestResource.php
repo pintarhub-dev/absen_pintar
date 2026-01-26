@@ -228,6 +228,12 @@ class LeaveRequestResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->recordUrl(
+                fn(LeaveRequest $record): ?string =>
+                $record->status === 'pending'
+                    ? Pages\EditLeaveRequest::getUrl([$record->id]) // Kalau pending, boleh ke Edit
+                    : null // Kalau sudah approve/reject, matikan klik (gak bisa diklik)
+            )
             ->columns([
                 Tables\Columns\TextColumn::make('employee.full_name')
                     ->label('Karyawan')
