@@ -439,8 +439,8 @@ class LeaveRequestResource extends Resource
                                     ],
                                     [
                                         'status' => $attendanceStatus,
-                                        'clock_in' => null,
-                                        'clock_out' => null,
+                                        // 'clock_in' => null,
+                                        // 'clock_out' => null,
                                         'late_minutes' => 0,
                                         'early_leave_minutes' => 0,
                                         'overtime_minutes' => 0,
