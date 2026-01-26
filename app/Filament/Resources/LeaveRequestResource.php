@@ -100,19 +100,28 @@ class LeaveRequestResource extends Resource
                             ->searchable(['code', 'name'])
                             ->required(),
 
-                        // Logic Hitung Durasi Otomatis
                         Forms\Components\DatePicker::make('start_date')
-                            ->required()
                             ->label('Mulai Tanggal')
+                            ->required()
                             ->live()
+                            // Validasi: Start tidak boleh setelah End (jika End sudah diisi)
+                            ->maxDate(fn(Get $get) => $get('end_date') ? \Carbon\Carbon::parse($get('end_date')) : null)
                             ->afterStateUpdated(function (Get $get, Set $set) {
                                 self::calculateDuration($get, $set);
                             }),
 
                         Forms\Components\DatePicker::make('end_date')
-                            ->required()
                             ->label('Sampai Tanggal')
+                            ->required()
                             ->live()
+                            // Tanggal di kalender sebelum Start Date gak bisa diklik
+                            ->minDate(fn(Get $get) => $get('start_date') ? \Carbon\Carbon::parse($get('start_date')) : null)
+                            // Validasi: End harus >= Start
+                            ->after('start_date')
+                            ->rule(function (Get $get) {
+                                $start = $get('start_date');
+                                return "after_or_equal:$start";
+                            })
                             ->afterStateUpdated(function (Get $get, Set $set) {
                                 self::calculateDuration($get, $set);
                             }),
