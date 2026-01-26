@@ -34,11 +34,23 @@ class LeaveTypeResource extends Resource
                             ->required()
                             ->maxLength(255),
 
+
                         Forms\Components\TextInput::make('code')
                             ->label('Kode Singkatan')
                             ->placeholder('CT / AL')
                             ->maxLength(10)
                             ->extraInputAttributes(['style' => 'text-transform: uppercase']),
+
+                        Forms\Components\Select::make('category')
+                            ->label('Kategori Sistem')
+                            ->options([
+                                'leave' => 'Cuti Tahunan',
+                                'sick' => 'Sakit (Sick)',
+                                'permit' => 'Izin (Permit)',
+                            ])
+                            ->helperText('Tentukan bagaimana sistem mencatat status absensi untuk jenis cuti ini.')
+                            ->required()
+                            ->default('leave'),
 
                         Forms\Components\TextInput::make('min_months_of_service')
                             ->label('Syarat Masa Kerja (Bulan)')
@@ -102,16 +114,18 @@ class LeaveTypeResource extends Resource
                 Tables\Columns\TextColumn::make('min_months_of_service')
                     ->label('Berlaku Minimal')
                     ->suffix(' Bulan')
-                    ->alignCenter(),
+                    // ->alignCenter(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('default_quota')
                     ->label('Jatah')
                     ->suffix(' Hari')
-                    ->alignCenter(),
+                    // ->alignCenter(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 // Boolean Columns (Pakai Icon biar cakep)
                 Tables\Columns\IconColumn::make('is_paid')
-                    ->label('Paid?')
+                    ->label('Dibayar?')
                     ->boolean()
                     ->trueIcon('heroicon-o-currency-dollar')
                     ->falseIcon('heroicon-o-x-mark')
@@ -131,6 +145,10 @@ class LeaveTypeResource extends Resource
                     ->boolean()
                     ->trueIcon('heroicon-o-paper-clip')
                     ->falseIcon('heroicon-o-x-mark'),
+
+                Tables\Columns\TextColumn::make('category')
+                    ->label('Kategori Sistem')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_paid')->label('Paid / Unpaid'),
