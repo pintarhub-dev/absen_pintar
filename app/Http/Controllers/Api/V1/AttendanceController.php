@@ -35,66 +35,95 @@ class AttendanceController extends Controller
             }
         }
 
-
-
         $timezone = $employee->workLocation->timezone ?? 'Asia/Jakarta';
         $now = now();
         $today = $now->toDateString();
+
+        // Cek apakah summary hari ini sudah dibuat oleh HRD (Approved Leave)?
+        $existingSummary = AttendanceSummary::where('employee_id', $employee->id)
+            ->where('date', $today)
+            ->first();
+
+        if ($existingSummary) {
+            // Daftar status yang HARAM untuk Clock In
+            $blockedStatuses = ['leave', 'sick', 'permit', 'holiday'];
+
+            if (in_array($existingSummary->status, $blockedStatuses)) {
+                $statusLabels = [
+                    'leave' => 'Cuti',
+                    'sick' => 'Sakit',
+                    'permit' => 'Izin',
+                    'holiday' => 'Libur Nasional'
+                ];
+                $label = $statusLabels[$existingSummary->status] ?? 'Tidak Hadir';
+
+                return $this->errorResponse("Anda tercatat sedang {$label} hari ini. Akses absen dikunci.", 403);
+            }
+        }
 
         // ------------------------------------------------------------------
         // LOGIC BARU: Validasi Jadwal & Tanggal Efektif
         // ------------------------------------------------------------------
 
         $scheduleId = null;
+        $shiftId = null;
         $scheduleIn = null;
         $scheduleOut = null;
         $isFlexibleShift = false;
         $shiftFound = false;
 
-        // PRIORITAS 1: Cek apakah ada Override / Tukar Shift untuk TANGGAL INI?
+        // -----------------------------------------------------------
+        // LANGKAH 1: AMBIL ASSIGNMENT (PATTERN) YANG AKTIF
+        // -----------------------------------------------------------
+        // Kita ambil ini DULUAN, tidak peduli nanti ada override atau tidak.
+        // Tujuannya agar kita bisa dapat $scheduleId (Schedule Pattern ID).
+        $assignment = EmployeeScheduleAssignment::with(['schedulePattern.details.shift'])
+            ->where('employee_id', $employee->id)
+            ->whereDate('effective_date', '<=', $today)
+            ->orderBy('effective_date', 'desc')
+            ->first();
+
+        if ($assignment) {
+            $scheduleId = $assignment->schedule_pattern_id;
+        }
+
+        // -----------------------------------------------------------
+        // LANGKAH 2: CEK OVERRIDE (PRIORITAS 1)
+        // -----------------------------------------------------------
         $dailySchedule = ScheduleOverride::where('employee_id', $employee->id)
             ->where('date', $today)
             ->first();
 
         if ($dailySchedule) {
-            // Jika ada override, pakai shift dari override tersebut
-            $shift = $dailySchedule->shift; // Relasi ke model Shift
+            // === KASUS A: ADA OVERRIDE ===
+            // Kita pakai SHIFT dari Override
+            $shift = $dailySchedule->shift;
+
             if (!$shift) {
                 return $this->errorResponse('Anda diliburkan untuk hari ini.', 403);
             }
             $shiftFound = true;
-        } else {
-            // PRIORITAS 2: Cek Jadwal Reguler (Pattern) berdasarkan TANGGAL EFEKTIF
-            $assignment = EmployeeScheduleAssignment::with(['schedulePattern.details.shift']) // Eager Load biar cepat
-                ->where('employee_id', $employee->id)
-                ->whereDate('effective_date', '<=', $today)
-                ->orderBy('effective_date', 'desc')
-                ->first();
-
-            if (!$assignment) {
-                // Jika tidak ada assignment sama sekali, atau tanggal efektif belum tercapai
-                return $this->errorResponse('Jadwal kerja belum aktif atau belum ditentukan. (Cek Tanggal Efektif)', 403);
-            }
-
-            // HITUNG SHIFT BERDASARKAN PATTERN
-            // Hari ini jatuh di urutan ke berapa dalam pattern
-            // Rumus: (Selisih Hari Ini dengan Tgl Efektif) Modulo (Panjang Pattern)
+        } elseif ($assignment) {
+            // === KASUS B: TIDAK ADA OVERRIDE, PAKAI PATTERN (PRIORITAS 2) ===
+            // Kita pakai SHIFT dari Pattern (Assignment)
             $shift = $assignment->getShiftOnDate($today);
+
             if ($shift) {
                 $shiftFound = true;
             } else {
-                // Jika trait mengembalikan null, artinya hari ini jatahnya OFF (Libur)
                 return $this->errorResponse('Hari ini adalah jadwal Libur (Off Day) Anda sesuai pola kerja.', 403);
             }
+        } else {
+            // === KASUS C: GAK ADA OVERRIDE & GAK ADA PATTERN ===
+            return $this->errorResponse('Jadwal kerja belum aktif atau belum ditentukan.', 403);
         }
 
-        // Jika setelah semua pengecekan shift masih tidak ketemu
+        // Validasi akhir
         if (!$shiftFound || !isset($shift)) {
-            return $this->errorResponse('Konfigurasi jadwal tidak valid. Hubungi HRD.', 403);
+            return $this->errorResponse('Konfigurasi shift tidak valid. Hubungi HRD.', 403);
         }
-
         // SET DATA SHIFT KE VARIABEL
-        $scheduleId = $shift->id;
+        $shiftId = $shift->id;
         $isFlexibleShift = $shift->is_flexible;
 
         if (!$isFlexibleShift) {
@@ -111,6 +140,7 @@ class AttendanceController extends Controller
             [
                 'tenant_id' => $employee->tenant_id,
                 'schedule_id'  => $scheduleId,
+                'shift_id'  => $shiftId,
                 'schedule_in'  => $scheduleIn,
                 'schedule_out' => $scheduleOut,
                 'status' => 'alpha',
@@ -274,6 +304,20 @@ class AttendanceController extends Controller
 
         if (!$summary) {
             return $this->errorResponse('Anda belum melakukan Clock In hari ini.', 400);
+        }
+
+        $blockedStatuses = ['leave', 'sick', 'permit', 'holiday'];
+
+        if (in_array($summary->status, $blockedStatuses)) {
+            $statusLabels = [
+                'leave' => 'Cuti',
+                'sick' => 'Sakit',
+                'permit' => 'Izin',
+                'holiday' => 'Libur Nasional'
+            ];
+            $label = $statusLabels[$summary->status] ?? 'Tidak Hadir';
+
+            return $this->errorResponse("Anda tercatat sedang {$label} hari ini. Akses absen dikunci.", 403);
         }
 
         // 3. Cari Sesi Aktif (Detail yang clock_out_time nya masih NULL)
