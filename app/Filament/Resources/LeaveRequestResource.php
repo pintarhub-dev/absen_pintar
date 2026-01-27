@@ -2,6 +2,9 @@
 
 namespace App\Filament\Resources;
 
+use pxlrbt\FilamentExcel\Actions\Tables\ExportAction;
+use pxlrbt\FilamentExcel\Exports\ExcelExport;
+use pxlrbt\FilamentExcel\Columns\Column;
 use App\Filament\Resources\LeaveRequestResource\Pages;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
@@ -308,6 +311,29 @@ class LeaveRequestResource extends Resource
                     ]),
                 Tables\Filters\SelectFilter::make('leave_type_id')
                     ->relationship('leaveType', 'name'),
+            ])
+            ->headerActions([
+                ExportAction::make()
+                    ->label('Download Laporan Cuti (Excel)')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->exports([
+                        ExcelExport::make()
+                            ->fromTable()
+                            ->withFilename(fn($resource) => 'Laporan_Cuti_' . date('Y-m-d'))
+                            ->withColumns([
+                                Column::make('employee.nik')->heading('NIK'),
+                                Column::make('employee.full_name')->heading('Nama Karyawan'),
+                                Column::make('leaveType.name')->heading('Jenis Cuti'),
+                                Column::make('start_date')->heading('Mulai Tanggal'),
+                                Column::make('end_date')->heading('Sampai Tanggal'),
+                                Column::make('duration_days')->heading('Total Hari'),
+                                Column::make('reason')->heading('Alasan'),
+                                Column::make('status')->heading('Status Terakhir'),
+                                Column::make('approved_at')->heading('Tanggal Disetujui'),
+                                Column::make('created_at')->heading('Tanggal Pengajuan'),
+                            ])
+                    ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
