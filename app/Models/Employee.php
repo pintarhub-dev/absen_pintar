@@ -59,6 +59,12 @@ class Employee extends Model
         return $this->belongsTo(User::class);
     }
 
+    // Relasi ke quota cuti karyawan
+    public function leaveBalances()
+    {
+        return $this->hasMany(LeaveBalance::class, 'employee_id');
+    }
+
     // Mengetahui supervisor atau atasannya siapa?
     public function atasan()
     {

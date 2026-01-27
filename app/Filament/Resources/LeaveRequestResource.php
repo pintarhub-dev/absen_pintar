@@ -257,6 +257,10 @@ class LeaveRequestResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->query(
+                LeaveRequest::query()
+                    ->with('employee.leaveBalances') // EAGER LOAD
+            )
             ->recordUrl(
                 fn(LeaveRequest $record): ?string =>
                 $record->status === 'pending'
@@ -330,6 +334,17 @@ class LeaveRequestResource extends Resource
                                 Column::make('duration_days')->heading('Total Hari'),
                                 Column::make('reason')->heading('Alasan'),
                                 Column::make('status')->heading('Status Terakhir'),
+                                Column::make('saldo_terakhir')
+                                    ->heading('Sisa Saldo Saat Ini')
+                                    ->getStateUsing(function ($record) {
+                                        $year = Carbon::parse($record->start_date)->year;
+
+                                        return $record->employee?->leaveBalances
+                                            ->where('leave_type_id', $record->leave_type_id)
+                                            ->where('year', $year)
+                                            ->first()
+                                            ?->remaining ?? 0;
+                                    }),
                                 Column::make('approved_at')->heading('Tanggal Disetujui'),
                                 Column::make('created_at')->heading('Tanggal Pengajuan'),
                             ])
