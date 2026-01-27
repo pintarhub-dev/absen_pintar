@@ -289,7 +289,6 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
         $employee = $user->employee;
-
         $now = now();
         $today = $now->toDateString();
 
@@ -353,6 +352,28 @@ class AttendanceController extends Controller
             'clock_out_image'     => $imagePath,
         ]);
 
+        $metaMessage = 'Hati-hati di jalan!';
+
+        if ($summary->schedule_out) {
+            // Logic Timezone (Sama seperti sebelumnya, cuma buat pesan doang)
+            $timezone = $employee->workLocation->timezone ?? 'Asia/Jakarta';
+
+            // Bersihkan format (Anti Double Date)
+            $dateString = $summary->date instanceof Carbon
+                ? $summary->date->format('Y-m-d')
+                : Carbon::parse($summary->date)->format('Y-m-d');
+            $scheduleTimeString = Carbon::parse($summary->schedule_out)->format('H:i:s');
+
+            // Parse
+            $scheduleOut = Carbon::parse("{$dateString} {$scheduleTimeString}", $timezone);
+            $actualOut   = $now->copy()->setTimezone($timezone);
+
+            if ($actualOut->greaterThan($scheduleOut)) {
+                $diff = $actualOut->diffInMinutes($scheduleOut);
+                $metaMessage = "Anda pulang terlambat {$diff} menit. Silakan ajukan lembur jika diperintahkan.";
+            }
+        }
+
         // 5. Update SUMMARY (Induk)
         // Summary selalu mencatat jam pulang & lokasi TERAKHIR hari itu
         $summary->update([
@@ -362,11 +383,13 @@ class AttendanceController extends Controller
             'clock_out_device_id' => $request->device_id,
             'clock_out_image'     => $imagePath,
             // Status update (opsional): Bisa tambah logic 'early_leave' disini nanti
+            // Set 0 dulu. Nanti di-overwrite saat Approval HRD.
+            'overtime_minutes'    => 0,
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Berhasil Clock Out (Sesi Ditutup)',
+            'message' => 'Berhasil Clock Out. ' . $metaMessage,
             'data'    => new AttendanceResource($summary->refresh())
         ]);
     }
