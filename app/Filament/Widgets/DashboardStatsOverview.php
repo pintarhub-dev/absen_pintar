@@ -5,50 +5,70 @@ namespace App\Filament\Widgets;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use App\Models\Employee;
-use App\Models\Attendance; // Pastikan model Attendance di-import
 use App\Models\AttendanceSummary;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DashboardStatsOverview extends BaseWidget
 {
-    protected static ?string $pollingInterval = '30s';
+    // Polling setiap 15 detik biar berasa realtime pas karyawan absen
+    protected static ?string $pollingInterval = '15s';
+
+    // Agar widget ini memanjang penuh di atas
+    protected int | string | array $columnSpan = 'full';
 
     protected function getStats(): array
     {
-        $totalEmployees = Employee::whereNotIn('employment_status', ['resigned', 'terminated', 'retired'])
-            ->count();
+        $today = Carbon::today()->toDateString();
 
-        $totalEmployeesAttendance = Employee::whereNotIn('employment_status', ['resigned', 'terminated', 'retired'])
-            ->whereHas('scheduleAssignments')
-            ->count();
+        // 1. Total Karyawan Aktif
+        $totalEmployees = Employee::whereNotIn('employment_status', ['resigned', 'terminated', 'retired'])->count();
 
-        $presentToday = AttendanceSummary::whereDate('date', Carbon::today())
+        // 2. Hadir Hari Ini (Hadir Tepat Waktu + Telat pun dianggap hadir secara fisik)
+        $presentToday = AttendanceSummary::where('date', $today)
             ->whereNotNull('clock_in')
             ->count();
 
-        $notPresent = $totalEmployeesAttendance - $presentToday;
+        // 3. Terlambat Hari Ini (Penting buat HR!)
+        $lateToday = AttendanceSummary::where('date', $today)
+            ->where('late_minutes', '>', 0)
+            ->count();
+
+        // 4. Sedang Cuti/Sakit/Izin (Status Non-Hadir tapi Valid)
+        $onLeaveToday = AttendanceSummary::where('date', $today)
+            ->whereIn('status', ['leave', 'sick', 'permit'])
+            ->count();
+
+        // --- Logic Chart 7 Hari Terakhir ---
+        // Kita ambil data 7 hari kebelakang untuk melihat tren kehadiran
+        $attendanceTrend = AttendanceSummary::select(DB::raw('DATE(date) as date'), DB::raw('count(*) as count'))
+            ->where('date', '>=', Carbon::now()->subDays(7))
+            ->whereNotNull('clock_in')
+            ->groupBy('date')
+            ->pluck('count')
+            ->toArray();
 
         return [
             Stat::make('Total Karyawan', $totalEmployees)
-                ->description('Karyawan aktif')
+                ->description('Database Aktif')
                 ->descriptionIcon('heroicon-m-users')
                 ->color('primary'),
 
-            Stat::make('Total Karyawan', $totalEmployeesAttendance)
-                ->description('Terjadwal Absen')
-                ->descriptionIcon('heroicon-m-document-duplicate')
-                ->color('primary'),
-
-            Stat::make('Hadir Hari Ini', $presentToday)
-                ->description('Sudah Clock-in')
+            Stat::make('Kehadiran Hari Ini', $presentToday)
+                ->description($presentToday > 0 ? 'Karyawan sudah check-in' : 'Belum ada absensi berjalan')
                 ->descriptionIcon('heroicon-m-check-circle')
                 ->color('success')
-                ->chart([7, 2, 10, 3, 15, 4, $presentToday]), //Dummy
+                ->chart($attendanceTrend),
 
-            Stat::make('Belum Hadir', $notPresent)
-                ->description('Belum Clock-in')
+            Stat::make('Terlambat', $lateToday)
+                ->description($lateToday . ' orang terlambat hari ini')
                 ->descriptionIcon('heroicon-m-clock')
-                ->color('danger'),
+                ->color($lateToday > 0 ? 'danger' : 'success'),
+
+            Stat::make('Sedang Cuti/Sakit/Izin', $onLeaveToday)
+                ->description('Tidak masuk dengan keterangan')
+                ->descriptionIcon('heroicon-m-document-text')
+                ->color('warning'),
         ];
     }
 }
