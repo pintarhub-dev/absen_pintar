@@ -14,7 +14,6 @@ class EditEmployee extends EditRecord
 
     protected function getRedirectUrl(): string
     {
-        // Biar habis save balik ke list
         return $this->getResource()::getUrl('index');
     }
 
@@ -25,7 +24,6 @@ class EditEmployee extends EditRecord
         ];
     }
 
-    // Bagian ini SUDAH BENAR (Mengisi form saat dibuka)
     protected function mutateFormDataBeforeFill(array $data): array
     {
         $user = User::find($data['user_id']);
@@ -36,7 +34,6 @@ class EditEmployee extends EditRecord
         return $data;
     }
 
-    // Bagian ini YANG KITA PERBAIKI
     protected function mutateFormDataBeforeSave(array $data): array
     {
         // Jangan pakai $data['user_id'], karena field itu gak ada di form edit.

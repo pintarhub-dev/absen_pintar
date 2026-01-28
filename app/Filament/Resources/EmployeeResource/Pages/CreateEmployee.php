@@ -37,7 +37,7 @@ class CreateEmployee extends CreateRecord
 
         // 3. Masukkan user_id ke array data Employee
         $data['user_id'] = $user->id;
-        $data['tenant_id'] = auth()->user()->tenant_id; // Explicitly set tenant for employee too
+        $data['tenant_id'] = auth()->user()->tenant_id;
 
         // 4. Hapus field 'email' dan 'password' dari array
         // Karena tabel employees tidak punya kolom ini. Kalau tidak dihapus, error SQL.
