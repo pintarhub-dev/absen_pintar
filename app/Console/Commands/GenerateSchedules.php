@@ -38,11 +38,8 @@ class GenerateSchedules extends Command
 
         // 2. Query Employee
         $query = Employee::query();
-
-        $query->where(function ($q) use ($baseStartDate) {
-            $q->whereNull('resignation_date')
-                ->orWhere('resignation_date', '>=', $baseStartDate); // Hanya yang resign setelah tanggal generate
-        });
+        $query->whereNotIn('employment_status', ['resigned', 'terminated', 'retired'])
+            ->whereHas('scheduleAssignments');
 
         if ($this->option('tenant_id')) {
             $query->where('tenant_id', $this->option('tenant_id'));
