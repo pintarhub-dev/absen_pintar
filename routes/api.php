@@ -40,8 +40,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/leaves/requests', [LeaveRequestController::class, 'store']);
         Route::delete('/leaves/requests/{id}', [LeaveRequestController::class, 'destroy']);
 
-        Route::get('/overtime/requests', [OvertimeRequestController::class, 'index']);
-        Route::post('/overtime/requests', [OvertimeRequestController::class, 'store']);
-        Route::delete('/overtime/requests/{id}', [OvertimeRequestController::class, 'destroy']);
+        Route::get('/overtimes/requests', [OvertimeRequestController::class, 'index']);
+        Route::post('/overtimes/requests', [OvertimeRequestController::class, 'store']);
+        Route::delete('/overtimes/requests/{id}', [OvertimeRequestController::class, 'destroy']);
     });
 });
