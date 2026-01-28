@@ -51,7 +51,6 @@ class LeaveRequestResource extends Resource
                                 titleAttribute: 'full_name',
                                 modifyQueryUsing: function (Builder $query) {
                                     $query->whereNotIn('employment_status', ['resigned', 'terminated', 'retired']);
-                                    $query->whereHas('scheduleAssignments');
                                 }
                             )
                             ->getOptionLabelFromRecordUsing(
