@@ -6,7 +6,8 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\LeaveBalanceController;
 use App\Http\Controllers\Api\V1\LeaveRequestController;
-use App\Http\Controllers\Api\V1\OvertimeRequestController;
+// use App\Http\Controllers\Api\V1\OvertimeRequestController;
+use App\Http\Controllers\Api\V1\LeaveTypeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -36,6 +37,8 @@ Route::prefix('v1')->group(function () {
             Route::post('clock-in', 'clockIn');
             Route::post('clock-out', 'clockOut');
         });
+
+        Route::get('/leave-types', [LeaveTypeController::class, 'index']);
 
         Route::get('/leaves/balances', [LeaveBalanceController::class, 'index']);
 
