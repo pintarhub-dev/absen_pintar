@@ -71,9 +71,8 @@ class LeaveTypeResource extends Resource
                 Section::make('Konfigurasi & Aturan')
                     ->description('Pengaturan perilaku untuk jenis cuti ini.')
                     ->schema([
-                        Grid::make(2) // Grid 2 kolom biar rapi
+                        Grid::make(3)
                             ->schema([
-                                // Kolom Kiri
                                 Forms\Components\Toggle::make('is_paid')
                                     ->label('Dibayar Penuh (Paid Leave)')
                                     ->helperText('Jika aktif, gaji tidak dipotong.')
