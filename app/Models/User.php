@@ -42,7 +42,8 @@ class User extends Authenticatable implements FilamentUser, HasName, MustVerifyE
         'role',
         'email',
         'password',
-        'status'
+        'status',
+        'avatar'
     ];
 
     protected $hidden = [
