@@ -385,7 +385,7 @@ class AttendanceController extends Controller
     public function clockOut(ClockOutRequest $request): JsonResponse
     {
         $user = $request->user();
-        $employee = $user->employee;
+        $employee = $user->employee->load('workLocation');
         $now = now();
         $today = $now->toDateString();
 
@@ -416,7 +416,7 @@ class AttendanceController extends Controller
             return $this->errorResponse("Anda tercatat sedang {$label} hari ini. Akses absen dikunci.", 403);
         }
 
-        // 3. Cari Sesi Aktif (Detail yang clock_out_time nya masih NULL)
+        // 3. Cari Sesi Aktif
         $activeSession = $summary->details()
             ->whereNull('clock_out_time')
             ->latest()
@@ -427,60 +427,78 @@ class AttendanceController extends Controller
         }
 
         // ---------------------------------------------------------
-        // LOGIC UPLOAD IMAGE CLOCK OUT
+        // LOGIC UPLOAD IMAGE
         // ---------------------------------------------------------
         $imagePath = null;
-
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            // Format nama: clock_out_{id}_{timestamp}.jpg
             $filename = 'clock_out_' . $employee->id . '_' . time() . '.' . $file->getClientOriginalExtension();
             $folder = 'attendance/' . $employee->tenant_id . '/' . $now->format('Y-m');
             $imagePath = $file->storeAs($folder, $filename, 'public');
         }
 
         // 4. Update DETAILS (Tutup Sesi Ini)
-        // Sekarang $imagePath sudah berisi string path (atau null)
         $activeSession->update([
             'clock_out_time'      => $now->toTimeString(),
             'clock_out_latitude'  => $request->latitude,
             'clock_out_longitude' => $request->longitude,
-            'clock_out_device_id' => $request->device_id, // Log device saat pulang
+            'clock_out_device_id' => $request->device_id,
             'clock_out_image'     => $imagePath,
         ]);
 
+        // ---------------------------------------------------------
+        // LOGIC EARLY LEAVE & MESSAGE
+        // ---------------------------------------------------------
         $metaMessage = 'Hati-hati di jalan!';
+        $earlyLeaveMinutes = 0;
 
+        // Hanya hitung jika ada jadwal pulang (Flexible shift mungkin null)
         if ($summary->schedule_out) {
-            // Logic Timezone (Sama seperti sebelumnya, cuma buat pesan doang)
             $timezone = $employee->workLocation->timezone ?? 'Asia/Jakarta';
 
-            // Bersihkan format (Anti Double Date)
+            // 1. Konstruksi Jadwal Pulang yang Valid
             $dateString = $summary->date instanceof Carbon
                 ? $summary->date->format('Y-m-d')
                 : Carbon::parse($summary->date)->format('Y-m-d');
-            $scheduleTimeString = Carbon::parse($summary->schedule_out)->format('H:i:s');
 
-            // Parse
-            $scheduleOut = Carbon::parse("{$dateString} {$scheduleTimeString}", $timezone);
-            $actualOut   = $now->copy()->setTimezone($timezone);
+            // Gabungkan Tanggal Summary + Jam Jadwal Pulang
+            $scheduleOut = Carbon::parse("{$dateString} {$summary->schedule_out}", $timezone);
 
-            if ($actualOut->greaterThan($scheduleOut)) {
+            // Handle Shift Malam (Cross Day)
+            // Jika Jadwal Pulang LEBIH KECIL dari Jadwal Masuk (misal Masuk 21:00, Pulang 06:00)
+            // Maka Jadwal Pulang adalah BESOKNYA (+1 Hari)
+            if ($summary->schedule_in && $summary->schedule_out < $summary->schedule_in) {
+                $scheduleOut->addDay();
+            }
+
+            // 2. Ambil Waktu Sekarang (Actual Out) sesuai Timezone
+            $actualOut = $now->copy()->setTimezone($timezone);
+
+            // 3. Bandingkan Waktu
+            if ($actualOut->lessThan($scheduleOut)) {
+                // KASUS: PULANG CEPAT (Early Leave)
+                // Hitung selisih menit
+                $earlyLeaveMinutes = $actualOut->diffInMinutes($scheduleOut);
+
+                // Opsional: Beri toleransi misal 5 menit dianggap on-time (Untuk kembangan nanti)
+                // if ($earlyLeaveMinutes > 5) { ... }
+
+                $metaMessage = "Anda pulang lebih awal {$earlyLeaveMinutes} menit dari jadwal.";
+            } elseif ($actualOut->greaterThan($scheduleOut)) {
+                // KASUS: PULANG TELAT (Potensi Lembur)
                 $diff = $actualOut->diffInMinutes($scheduleOut);
                 $metaMessage = "Anda pulang terlambat {$diff} menit. Silakan ajukan lembur jika diperintahkan.";
             }
         }
 
-        // 5. Update SUMMARY (Induk)
-        // Summary selalu mencatat jam pulang & lokasi TERAKHIR hari itu
+        // 5. Update SUMMARY
         $summary->update([
             'clock_out'           => $now->toTimeString(),
             'clock_out_latitude'  => $request->latitude,
             'clock_out_longitude' => $request->longitude,
             'clock_out_device_id' => $request->device_id,
             'clock_out_image'     => $imagePath,
-            // Status update (opsional): Bisa tambah logic 'early_leave' disini nanti
-            // Set 0 dulu. Nanti di-overwrite saat Approval HRD.
+            'early_leave_minutes' => $earlyLeaveMinutes,
             'overtime_minutes'    => 0,
         ]);
 
