@@ -9,29 +9,46 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use App\Traits\Blameable;
 
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasName;
 use Filament\Panel;
+use Filament\Models\Contracts\HasAvatar;
 
-class User extends Authenticatable implements FilamentUser, HasName, MustVerifyEmail
+class User extends Authenticatable implements FilamentUser, HasName, MustVerifyEmail, HasAvatar
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes, Blameable;
 
+    public function getFilamentAvatarUrl(): ?string
+    {
+        if ($this->avatar) {
+            return Storage::url($this->avatar);
+        }
+        return null;
+    }
+
     protected static function booted(): void
     {
-        static::deleted(function (User $user) {
-            $user->employee?->delete();
+        static::updating(function ($user) {
+            // Cek apakah kolom avatar berubah (isDirty)
+            if ($user->isDirty('avatar')) {
+                // Ambil path foto lama (getOriginal)
+                $oldAvatar = $user->getOriginal('avatar');
+                // Jika ada foto lama, dan filenya beneran ada di storage
+                if ($oldAvatar && Storage::disk('public')->exists($oldAvatar)) {
+                    Storage::disk('public')->delete($oldAvatar);
+                }
+            }
         });
 
-        // static::restored(function (User $user) {
-        //     $user->employee()->restore();
-        // });
-
-        // static::forceDeleted(function (User $user) {
-        //     $user->employee()->forceDelete();
-        // });
+        static::deleting(function ($user) {
+            if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
+                Storage::disk('public')->delete($user->avatar);
+            }
+            $user->employee?->delete();
+        });
     }
 
     protected $guarded = ['id'];

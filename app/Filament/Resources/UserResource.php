@@ -52,6 +52,7 @@ class UserResource extends Resource
                         Forms\Components\FileUpload::make('avatar')
                             ->avatar()
                             ->image()
+                            ->imageEditor()
                             ->disk('public')
                             ->directory(fn($record) => 'avatars/' . $record->tenant_id . '/' . $record->id)
                             ->columnSpanFull(),

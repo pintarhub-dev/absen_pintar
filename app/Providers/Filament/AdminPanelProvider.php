@@ -24,6 +24,8 @@ use App\Http\Middleware\EnsureTenant;
 use App\Http\Middleware\EnsureTenantSetup;
 use Illuminate\Support\Facades\Auth;
 
+use App\Filament\Pages\Auth\EditProfile;
+
 class AdminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
@@ -38,6 +40,7 @@ class AdminPanelProvider extends PanelProvider
                     : 'Kerja Pintar'
             )
             // ->brandLogo(asset('images/logo.png'))
+            ->profile(EditProfile::class)
             ->colors([
                 'primary' => Color::Amber,
             ])
