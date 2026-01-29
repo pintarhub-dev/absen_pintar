@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\User;
+use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
@@ -28,6 +29,7 @@ class AuthController extends Controller
 
         // 3. Ambil User & Data Karyawan
         $user = User::where('email', $request->email)->first();
+        $user->load(['employee.workLocation', 'employee.attendanceSummaries.shift']);
 
         // Cek apakah user ini punya data karyawan?
         if (!$user->employee) {
@@ -51,19 +53,65 @@ class AuthController extends Controller
             'message' => 'Login Berhasil',
             'data' => [
                 'token' => $token,
-                'user' => [
-                    'id' => $user->id,
-                    'tenant_id' => $user->tenant_id,
-                    'email' => $user->email,
-                ],
-                'employee' => [
-                    'id' => $user->employee->id,
-                    'nik' => $user->employee->nik,
-                    'name' => $user->employee->full_name,
-                    'is_flexible' => (bool) $user->employee->is_flexible_location,
-                ]
+                'user' => $this->formatUserProfile($user), // Kita buat private function biar rapi
             ]
         ]);
+    }
+
+    public function me(Request $request)
+    {
+        $user = $request->user();
+        $user->load(['employee.workLocation', 'employee.attendanceSummaries.shift']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Data Profil Berhasil Diambil',
+            'data' => [
+                'user' => $this->formatUserProfile($user),
+            ]
+        ]);
+    }
+
+    private function formatUserProfile($user)
+    {
+        $emp = $user->employee;
+
+        // Logic Avatar: Jika null, pakai default placeholder atau null
+        $avatarUrl = $user->avatar
+            ? Storage::url($user->avatar)
+            : 'https://ui-avatars.com/api/?name=' . urlencode($emp->full_name);
+
+        return [
+            // A. AKUN (User Table) - Editable: Avatar
+            'id'            => $user->id,
+            'email'         => $user->email,
+            'role'          => $user->role,
+            'avatar_url'    => $avatarUrl,
+
+            // B. PERSONAL (Employee Table) - Editable: Phone, Address, Nickname
+            'full_name'     => $emp->full_name,
+            'nickname'      => $emp->nickname,
+            'phone'         => $emp->phone,
+            'address'       => $emp->address,
+            'gender'        => $emp->gender,
+            'birth_place'   => $emp->place_of_birth,
+            'birth_date'    => $emp->date_of_birth,
+
+            // C. PEKERJAAN (Employee Table) - Read Only
+            'nik'               => $emp->nik,
+            'job_title'         => $emp->job_title,
+            'department'        => $emp->department,
+            'status'            => $emp->employment_status,
+            'join_date'         => $emp->join_date,
+            'tenure_months'     => $emp->join_date ? \Carbon\Carbon::parse($emp->join_date)->diffInMonths(now()) : 0, // Lama bekerja (bulan)
+
+            // D. KONFIGURASI ABSENSI (Logic System)
+            'is_flexible'       => (bool) $emp->is_flexible_location,
+            'tenant'            => $user->tenant ? $user->tenant->name : '-',
+            'work_location'     => $emp->workLocation ? $emp->workLocation->name : '-',
+            'latitude'          => $emp->workLocation ? $emp->workLocation->latitude : null,
+            'longitude'         => $emp->workLocation ? $emp->workLocation->longitude : null,
+        ];
     }
 
     public function logout(Request $request)

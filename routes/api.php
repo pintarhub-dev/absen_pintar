@@ -20,10 +20,6 @@ use App\Http\Controllers\Api\V1\LeaveTypeController;
 |
 */
 
-Route::middleware('auth:sanctum')->get('v1/user', function (Request $request) {
-    return $request->user();
-});
-
 Route::prefix('v1')->group(function () {
     // --- PUBLIC ROUTES (Tanpa Login) ---
     Route::post('auth/login', [AuthController::class, 'login']);
@@ -31,6 +27,8 @@ Route::prefix('v1')->group(function () {
     // --- PROTECTED ROUTES (Butuh Token) ---
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
+
+        Route::get('user/me', [AuthController::class, 'me']);
 
         Route::prefix('attendance')->controller(AttendanceController::class)->group(function () {
             Route::get('history', 'history');
