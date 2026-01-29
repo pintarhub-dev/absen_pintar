@@ -37,6 +37,7 @@ class Employee extends Model
         'join_date',
         'employment_status',
         'is_access_web',
+        'is_hr',
         'is_attendance_required',
         'resignation_date',
         'resignation_note',
