@@ -32,6 +32,7 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
         Route::prefix('attendance')->controller(AttendanceController::class)->group(function () {
+            Route::get('history', 'history');
             Route::post('clock-in', 'clockIn');
             Route::post('clock-out', 'clockOut');
         });
@@ -41,6 +42,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('leaves')->controller(LeaveRequestController::class)->group(function () {
             Route::get('requests', 'index');
             Route::post('requests', 'store');
+            Route::put('requests/{id}', 'update');
             Route::delete('requests/{id}', 'destroy');
         });
 

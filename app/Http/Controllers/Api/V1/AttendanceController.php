@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ClockInRequest;
 use App\Http\Requests\Api\V1\ClockOutRequest;
+use Illuminate\Http\Request;
 use App\Http\Resources\Api\V1\AttendanceResource;
 use App\Models\AttendanceSummary;
 use App\Models\EmployeeScheduleAssignment;
@@ -14,6 +15,101 @@ use Illuminate\Http\JsonResponse;
 
 class AttendanceController extends Controller
 {
+    // HISTORI KEHADIRAN KARYAWAN
+    public function history(Request $request)
+    {
+        $user = auth()->user();
+
+        // Pastikan relasi employee diload biar hemat query & variabel tersedia
+        // Load: workLocation (buat timezone), shift (buat durasi break)
+        $employee = $user->employee->load(['workLocation', 'attendanceSummaries.shift']);
+
+        // 1. Validasi Input
+        $request->validate([
+            'month' => 'nullable|integer|min:1|max:12',
+            'year'  => 'nullable|integer|min:2020|max:' . (date('Y') + 1),
+        ]);
+
+        $month = $request->month ?? Carbon::now()->month;
+        $year  = $request->year ?? Carbon::now()->year;
+
+        // 2. Query Data
+        $histories = AttendanceSummary::where('employee_id', $employee->id)
+            ->with(['shift']) // Eager load shift snapshot di summary (jika ada relasinya)
+            ->whereMonth('date', $month)
+            ->whereYear('date', $year)
+            ->orderBy('date', 'desc')
+            ->get()
+            ->map(function ($item) use ($employee) {
+
+                // A. LOGIC TIMEZONE
+                $timezone = $employee->workLocation->timezone ?? 'Asia/Jakarta';
+                $clockIn  = $item->clock_in ? Carbon::parse($item->clock_in)->setTimezone($timezone) : null;
+                $clockOut = $item->clock_out ? Carbon::parse($item->clock_out)->setTimezone($timezone) : null;
+
+                $workHoursStr = '-';
+                $actualMinutes = 0;
+
+                // B. HITUNG JAM KERJA BERSIH
+                if ($clockIn && $clockOut) {
+                    // 1. Hitung selisih kotor (Gross)
+                    $grossMinutes = $clockIn->diffInMinutes($clockOut);
+
+                    // 2. Ambil Durasi Istirahat (Break)
+                    // Priority: Ambil dari snapshot shift di summary (jika history shift berubah),
+                    // kalau null, ambil dari master shift saat ini.
+                    $shiftSnapshot = $item->shift ?? $employee->shift;
+                    $breakMinutes = $shiftSnapshot ? $shiftSnapshot->break_duration_minutes : 60; // Default 60 menit kalau shift null
+
+                    // C. LOGIC FLEXIBLE SHIFT
+                    if ($shiftSnapshot && $shiftSnapshot->is_flexible) {
+                        // Kalau flexible, biasanya istirahat itu 'terserah' atau 'auto deduct'.
+                        // Disini kita asumsikan tetap dipotong break_duration jika kerja > 4 jam (misal).
+                        // Atau simpelnya: Tetap kurangi break duration sesuai settingan shift.
+                        $deductedBreak = $breakMinutes;
+                    } else {
+                        // Shift Normal
+                        $deductedBreak = $breakMinutes;
+                    }
+
+                    // 3. Hitung Net Minutes (Gross - Break)
+                    // Pastikan tidak minus (misal baru kerja 30 menit terus checkout)
+                    $actualMinutes = max(0, $grossMinutes - $deductedBreak);
+
+                    // 4. Format ke Jam:Menit
+                    $hours   = intdiv($actualMinutes, 60);
+                    $minutes = $actualMinutes % 60;
+                    $workHoursStr = sprintf('%02d Jam %02d Menit', $hours, $minutes);
+                }
+
+                // D. FORMAT OUTPUT JSON
+                return [
+                    'id'            => $item->id,
+                    'date'          => $item->date,
+                    'day_name'      => Carbon::parse($item->date)->locale('id')->isoFormat('dddd'),
+                    'shift_name'    => $item->shift->name ?? 'N/A', // Info Shift
+                    'clock_in'      => $clockIn ? $clockIn->format('H:i') : '-',
+                    'clock_out'     => $clockOut ? $clockOut->format('H:i') : '-',
+                    'status'        => $item->status,
+                    'late_minutes'  => $item->late_minutes,
+                    'is_late'       => $item->late_minutes > 0,
+                    'work_hours'    => $workHoursStr, // String "08 Jam 30 Menit"
+                    'work_minutes'  => $actualMinutes, // Raw data buat grafik/perhitungan frontend
+                ];
+            });
+
+        return response()->json([
+            'meta' => [
+                'month' => $month,
+                'year' => $year,
+                'total_attendance' => $histories->whereIn('status', ['present', 'late'])->count(),
+                'total_late' => $histories->where('is_late', true)->count(),
+                'total_work_hours' => floor($histories->sum('work_minutes') / 60),
+            ],
+            'data' => $histories,
+        ]);
+    }
+
     /**
      * API Clock In
      */

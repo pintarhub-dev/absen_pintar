@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 
 class LeaveRequestController extends Controller
 {
@@ -174,6 +175,62 @@ class LeaveRequestController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    public function update(Request $request, $id)
+    {
+        $user = $request->user();
+        $employee = $request->user()->employee;
+
+        // 1. Cari Data & Cek Kepemilikan
+        $leaveRequest = LeaveRequest::where('id', $id)
+            ->where('employee_id', $user->employee->id) // Pastikan punya dia sendiri
+            ->first();
+
+        if (!$leaveRequest) {
+            return response()->json(['message' => 'Pengajuan tidak ditemukan'], 404);
+        }
+
+        // 2. Cuma boleh edit kalau status masih Pending
+        if ($leaveRequest->status !== 'pending') {
+            return response()->json([
+                'message' => 'Tidak dapat mengubah data. Status pengajuan sudah diproses (' . $leaveRequest->status . ')'
+            ], 403);
+        }
+
+        // 3. Validasi Input Form
+        $request->validate([
+            'leave_type_id' => 'required|exists:leave_types,id',
+            'start_date'    => 'required|date',
+            'end_date'      => 'required|date|after_or_equal:start_date',
+            'reason'        => 'required|string|max:255',
+            'attachment'    => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+        ]);
+
+        // 4. Update File Lampiran (Jika ada upload baru)
+        if ($request->hasFile('attachment')) {
+            // Hapus file lama
+            if ($leaveRequest->attachment) {
+                Storage::disk('public')->delete($leaveRequest->attachment);
+            }
+            // Simpan file baru
+            $path = $request->file('attachment')->store('leave_attachments/' . $employee->tenant_id . '/' .
+                date('Y-m'), 'public');
+            $leaveRequest->attachment = $path;
+        }
+
+        // 5. Update Data Lainnya
+        $leaveRequest->update([
+            'leave_type_id' => $request->leave_type_id,
+            'start_date'    => $request->start_date,
+            'end_date'      => $request->end_date,
+            'reason'        => $request->reason,
+        ]);
+
+        return response()->json([
+            'message' => 'Pengajuan cuti berhasil diperbarui',
+            'data' => $leaveRequest
+        ]);
     }
 
     // BATALKAN CUTI (DELETE/CANCEL)
