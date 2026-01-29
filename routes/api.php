@@ -20,7 +20,7 @@ use App\Http\Controllers\Api\V1\LeaveTypeController;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+Route::middleware('auth:sanctum')->get('v1/user', function (Request $request) {
     return $request->user();
 });
 
