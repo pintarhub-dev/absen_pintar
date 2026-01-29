@@ -30,8 +30,8 @@ return new class extends Migration
             $table->string('clock_in_location')->nullable();
             $table->decimal('clock_in_latitude', 10, 7)->nullable();
             $table->decimal('clock_in_longitude', 10, 7)->nullable();
-            $table->string('clock_in_device_id')->nullable(); // Opsional: catat ID HP
             $table->string('clock_in_image')->nullable();
+            $table->string('clock_in_device_id')->nullable(); // Opsional: catat ID HP
 
             $table->string('clock_out_location')->nullable();
             $table->decimal('clock_out_latitude', 10, 7)->nullable();
