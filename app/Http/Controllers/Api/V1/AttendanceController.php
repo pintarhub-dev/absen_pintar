@@ -19,7 +19,7 @@ class AttendanceController extends Controller
     // HISTORI KEHADIRAN KARYAWAN
     public function history(Request $request)
     {
-        $user = auth()->user();
+        $user = $request->user();
 
         // Pastikan relasi employee diload biar hemat query & variabel tersedia
         // Load: workLocation (buat timezone), shift (buat durasi break)
