@@ -39,9 +39,9 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/leave-types', [LeaveTypeController::class, 'index']);
 
-        Route::get('/leaves/balances', [LeaveBalanceController::class, 'index']);
+        Route::get('/leave/balances', [LeaveBalanceController::class, 'index']);
 
-        Route::prefix('leaves')->controller(LeaveRequestController::class)->group(function () {
+        Route::prefix('leave')->controller(LeaveRequestController::class)->group(function () {
             Route::get('requests', 'index');
             Route::post('requests', 'store');
             Route::put('requests/{id}', 'update');
