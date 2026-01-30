@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
-use PDO;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
@@ -176,6 +177,35 @@ class AuthController extends Controller
             DB::rollBack();
             return response()->json(['message' => 'Gagal update profil', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    public function updatePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required',
+            'new_password' => 'required|min:8|confirmed',
+            'new_password_confirmation' => 'required|min:8',
+        ]);
+
+        $user = $request->user();
+
+        // 1. Cek Password Lama
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Password lama tidak sesuai.',
+            ], 400);
+        }
+
+        // 2. Update Password Baru
+        $user->update([
+            'password' => Hash::make($request->new_password)
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password berhasil diubah.',
+        ]);
     }
 
     public function logout(Request $request)

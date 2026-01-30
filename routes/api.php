@@ -30,6 +30,7 @@ Route::prefix('v1')->group(function () {
 
         Route::get('user/me', [AuthController::class, 'me']);
         Route::post('user/update', [AuthController::class, 'updateProfile']);
+        Route::post('user/password', [AuthController::class, 'updatePassword']);
 
         Route::prefix('attendance')->controller(AttendanceController::class)->group(function () {
             Route::get('current-status', 'currentStatus');
