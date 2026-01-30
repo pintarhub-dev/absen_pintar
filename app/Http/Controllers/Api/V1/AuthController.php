@@ -89,7 +89,7 @@ class AuthController extends Controller
 
         // Logic Avatar: Jika null, pakai default placeholder atau null
         $avatarUrl = $user->avatar
-            ? Storage::url($user->avatar)
+            ? url(Storage::url($user->avatar))
             : 'https://ui-avatars.com/api/?name=' . urlencode($emp->full_name);
 
         return [
