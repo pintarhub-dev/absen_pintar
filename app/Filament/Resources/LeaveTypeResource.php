@@ -71,7 +71,7 @@ class LeaveTypeResource extends Resource
                 Section::make('Konfigurasi & Aturan')
                     ->description('Pengaturan perilaku untuk jenis cuti ini.')
                     ->schema([
-                        Grid::make(3)
+                        Grid::make(2)
                             ->schema([
                                 Forms\Components\Toggle::make('is_paid')
                                     ->label('Dibayar Penuh (Paid Leave)')
@@ -91,9 +91,9 @@ class LeaveTypeResource extends Resource
                                     ->helperText('Contoh: Surat Dokter untuk Sakit.')
                                     ->default(false),
 
-                                // Forms\Components\Toggle::make('is_carry_forward')
-                                //     ->label('Bisa Carry Forward (Sisa saldo dibawa ke tahun depan)')
-                                //     ->default(false),
+                                Forms\Components\Toggle::make('is_carry_forward')
+                                    ->label('Bisa Carry Forward (Sisa saldo dibawa ke tahun depan)')
+                                    ->default(false),
                             ]),
                     ]),
             ]);
