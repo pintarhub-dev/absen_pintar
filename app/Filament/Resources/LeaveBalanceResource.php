@@ -14,6 +14,7 @@ use Filament\Tables\Table;
 use Filament\Forms\Components\Section;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
+use Carbon\Carbon;
 
 class LeaveBalanceResource extends Resource
 {
@@ -79,7 +80,7 @@ class LeaveBalanceResource extends Resource
 
                         Forms\Components\TextInput::make('carried_over')
                             ->label('Sisa Lalu (Carry Over)')
-                            ->helperText('Sisa cuti tahun lalu yang dibawa (jika ada).')
+                            ->helperText('Sisa cuti tahun lalu yang dibawa ke tahun ini.')
                             ->numeric()
                             ->default(0),
 
@@ -125,7 +126,7 @@ class LeaveBalanceResource extends Resource
                 Tables\Columns\TextColumn::make('carried_over')
                     ->label('Sisa Lalu')
                     ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->color('gray'),
 
                 Tables\Columns\TextColumn::make('taken')
                     ->label('Terpakai')
@@ -175,32 +176,70 @@ class LeaveBalanceResource extends Resource
                             ->helperText('Saldo akan dibuat untuk SEMUA karyawan aktif berdasarkan kuota default jenis cuti ini.'),
                     ])
                     ->action(function (array $data) {
-                        $year = $data['year'];
+                        $targetYear = $data['year'];
                         $leaveType = LeaveType::find($data['leave_type_id']);
 
                         if (!$leaveType) return;
 
-                        // Ambil semua karyawan aktif yang sudah di assign schedule
+                        // 1. Ambil Karyawan Aktif
                         $employees = Employee::whereNotIn('employment_status', ['resigned', 'terminated', 'retired'])
                             ->whereHas('scheduleAssignments')
                             ->get();
 
                         $count = 0;
+                        $skipped = 0;
+
                         foreach ($employees as $emp) {
-                            // Cek apakah sudah ada saldo tahun ini? Biar gak dobel.
+                            // LOGIC 1: Cek Masa Kerja (Min Months of Service)
+                            // Pastikan join_date ada, kalau null anggap pegawai baru (0 bulan)
+                            $joinDate = $emp->join_date ? Carbon::parse($emp->join_date) : Carbon::now();
+                            $monthsOfService = $joinDate->diffInMonths(Carbon::now()); // Hitung sampai hari ini
+
+                            // Kalau masa kerja belum cukup, SKIP.
+                            if ($monthsOfService < $leaveType->min_months_of_service) {
+                                $skipped++;
+                                continue;
+                            }
+
+                            // LOGIC 2: Cek Existing Balance (Biar gak duplikat)
                             $exists = LeaveBalance::where('employee_id', $emp->id)
                                 ->where('leave_type_id', $leaveType->id)
-                                ->where('year', $year)
+                                ->where('year', $targetYear)
                                 ->exists();
 
                             if (!$exists) {
+                                // LOGIC 3: Hitung Carry Over (Sisa Lalu)
+                                $carryOverAmount = 0;
+
+                                // Cek apakah saldo tahun sebelumnya ada?
+                                $prevYear = $targetYear - 1;
+                                $prevBalance = LeaveBalance::where('employee_id', $emp->id)
+                                    ->where('leave_type_id', $leaveType->id)
+                                    ->where('year', $prevYear)
+                                    ->first();
+
+                                if ($prevBalance) {
+                                    // Hitung sisa tahun lalu
+                                    // Sisa = (Entitlement + CarryOverLalu) - Taken
+                                    $remainingLastYear = ($prevBalance->entitlement + $prevBalance->carried_over) - $prevBalance->taken;
+
+                                    // Kalau sisa positif, bawa ke tahun ini
+                                    // (Opsional: tambah logic max_carry_over di sini, misal max 5 hari)
+                                    if ($remainingLastYear > 0) {
+                                        if ($leaveType->is_carry_forward == 1) {
+                                            $carryOverAmount = $remainingLastYear;
+                                        }
+                                    }
+                                }
+
+                                // Create Saldo Baru
                                 LeaveBalance::create([
-                                    'tenant_id' => $emp->tenant_id,
+                                    'tenant_id' => $emp->tenant_id, // Pastikan tenant_id terisi
                                     'employee_id' => $emp->id,
                                     'leave_type_id' => $leaveType->id,
-                                    'year' => $year,
-                                    'entitlement' => $leaveType->default_quota,
-                                    'carried_over' => 0,
+                                    'year' => $targetYear,
+                                    'entitlement' => $leaveType->default_quota, // Jatah tahun ini
+                                    'carried_over' => $carryOverAmount,         // Sisa tahun lalu
                                     'taken' => 0,
                                 ]);
                                 $count++;
