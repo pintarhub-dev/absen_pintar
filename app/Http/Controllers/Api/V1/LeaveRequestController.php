@@ -15,7 +15,76 @@ use Illuminate\Support\Facades\Storage;
 
 class LeaveRequestController extends Controller
 {
-    // 1. LIST HISTORY CUTI
+    // --- HELPER FUNCTION UNTUK VALIDASI LOGIC (BIAR GAK DUPLIKAT DI STORE & UPDATE) ---
+    private function validateLeaveLogic($employee, $leaveTypeId, $startDate, $endDate, $excludeRequestId = null)
+    {
+        $start = Carbon::parse($startDate);
+        $end = Carbon::parse($endDate);
+        $duration = $start->diffInDays($end) + 1;
+
+        // 1. Cek Bentrok Tanggal (Overlap)
+        $queryOverlap = LeaveRequest::where('employee_id', $employee->id)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where(function ($query) use ($startDate, $endDate) {
+                $query->where('start_date', '<=', $endDate)
+                    ->where('end_date', '>=', $startDate);
+            });
+
+        if ($excludeRequestId) {
+            $queryOverlap->where('id', '!=', $excludeRequestId);
+        }
+
+        if ($queryOverlap->exists()) {
+            return ['error' => 'Anda sudah memiliki pengajuan cuti pada rentang tanggal ini.'];
+        }
+
+        // 2. Cek Data Absensi (Clock In)
+        $hasAttendance = AttendanceSummary::where('employee_id', $employee->id)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->whereNotNull('clock_in')
+            ->first();
+
+        if ($hasAttendance) {
+            return ['error' => 'Pengajuan ditolak. Anda tercatat sudah hadir pada tanggal ' . Carbon::parse($hasAttendance->date)->format('d-m-Y') . '.'];
+        }
+
+        $leaveType = LeaveType::find($leaveTypeId);
+
+        // 3. Validasi Masa Kerja (Hanya Cek saat Create, saat Update asumsinya user sama)
+        if (!$excludeRequestId) {
+            $minMonths = $leaveType->min_months_of_service ?? 0;
+            if ($minMonths > 0) {
+                if (!$employee->join_date) {
+                    return ['error' => 'Tanggal bergabung belum diatur HRD.'];
+                }
+                $monthsWorked = Carbon::parse($employee->join_date)->diffInMonths(now());
+                if ($monthsWorked < $minMonths) {
+                    return ['error' => 'Masa kerja belum cukup. Minimal: ' . $minMonths . ' bulan.'];
+                }
+            }
+        }
+
+        // 4. Cek Saldo
+        if ($leaveType->deducts_quota) {
+            $year = $start->year;
+            $balance = LeaveBalance::where('employee_id', $employee->id)
+                ->where('leave_type_id', $leaveTypeId)
+                ->where('year', $year)
+                ->first();
+
+            if (!$balance) {
+                return ['error' => "Saldo cuti tahun $year belum tersedia. Hubungi HRD."];
+            }
+
+            if ($balance->remaining < $duration) {
+                return ['error' => "Sisa saldo tidak mencukupi. Sisa: {$balance->remaining}, Diminta: $duration."];
+            }
+        }
+
+        return ['success' => true, 'duration' => $duration];
+    }
+
+
     public function index(Request $request)
     {
         $employee = $request->user()->employee;
@@ -28,14 +97,17 @@ class LeaveRequestController extends Controller
         $data = $requests->through(function ($item) {
             return [
                 'id' => $item->id,
+                'leave_type_id' => $item->leave_type_id,
                 'leave_type' => $item->leaveType->name,
                 'start_date' => $item->start_date,
                 'end_date' => $item->end_date,
                 'duration_days' => $item->duration_days,
                 'reason' => $item->reason,
-                'status' => $item->status, // pending, approved_by_xx, rejected
+                'attachment_url' => $item->attachment ? url(Storage::url($item->attachment)) : null,
+                'status' => $item->status,
+                'status_label' => $this->getStatusLabel($item->status), // Helper label bhs indo
                 'rejection_reason' => $item->rejection_reason,
-                'created_at' => $item->created_at->toDateTimeString(),
+                'created_at' => $item->created_at->format('d M Y H:i'),
             ];
         });
 
@@ -45,112 +117,38 @@ class LeaveRequestController extends Controller
         ]);
     }
 
-    // PENGAJUAN CUTI (CREATE)
     public function store(Request $request)
     {
         $employee = $request->user()->employee;
 
-        // --- VALIDASI INPUT DASAR ---
         $validator = Validator::make($request->all(), [
             'leave_type_id' => 'required|exists:leave_types,id',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
             'reason' => 'required|string|max:500',
-            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048', // Max 2MB
+            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+        if ($validator->fails()) return response()->json(['errors' => $validator->errors()], 422);
+
+        // --- PAKAI HELPER VALIDASI ---
+        $logicCheck = $this->validateLeaveLogic(
+            $employee,
+            $request->leave_type_id,
+            $request->start_date,
+            $request->end_date
+        );
+
+        if (isset($logicCheck['error'])) {
+            return response()->json(['message' => $logicCheck['error']], 422);
         }
 
-        $leaveTypeId = $request->leave_type_id;
-        $startDate = $request->start_date;
-        $endDate = $request->end_date;
+        $duration = $logicCheck['duration'];
+        $leaveType = LeaveType::find($request->leave_type_id);
 
-        // Hitung Durasi (Logic sama dengan Filament)
-        $start = Carbon::parse($startDate);
-        $end = Carbon::parse($endDate);
-        $duration = $start->diffInDays($end) + 1; // +1 karena inklusif
-
-        // 1. Cek Bentrok Tanggal (Overlap)
-        $isOverlap = LeaveRequest::where('employee_id', $employee->id)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->where(function ($query) use ($startDate, $endDate) {
-                $query->where('start_date', '<=', $endDate)
-                    ->where('end_date', '>=', $startDate);
-            })
-            ->exists();
-
-        if ($isOverlap) {
-            return response()->json(['message' => 'Anda sudah memiliki pengajuan cuti pada rentang tanggal ini.'], 422);
-        }
-
-        // 1.5. Cek Data Absensi (Clock In)
-        // Mencegah cuti di hari dimana karyawan SUDAH masuk kerja
-        $hasAttendance = AttendanceSummary::where('employee_id', $employee->id)
-            ->whereBetween('date', [$startDate, $endDate])
-            ->whereNotNull('clock_in')
-            ->first();
-
-        if ($hasAttendance) {
-            return response()->json([
-                'message' => 'Pengajuan ditolak. Anda tercatat sudah hadir (Clock In) pada tanggal ' . Carbon::parse($hasAttendance->date)->format('d-m-Y') . '.',
-            ], 422);
-        }
-
-        $leaveType = LeaveType::find($leaveTypeId);
-        // 2. VALIDASI MASA KERJA
-        $minMonths = $leaveType->min_months_of_service ?? 0; // Default 0 jika null
-        if ($minMonths > 0) {
-            // Pastikan tanggal join ada
-            if (!$employee->join_date) {
-                return response()->json([
-                    'message' => 'Tanggal bergabung (Join Date) Anda belum diatur oleh HRD, sehingga sistem tidak bisa memverifikasi kelayakan cuti.'
-                ], 422);
-            }
-
-            $joinDate = Carbon::parse($employee->join_date);
-
-            // Karyawan harus sudah bekerja X bulan SAAT mengajukan request.
-            $monthsWorked = $joinDate->diffInMonths(now());
-            if ($monthsWorked < $minMonths) {
-                return response()->json([
-                    'message' => 'Masa kerja Anda belum memenuhi syarat untuk jenis cuti ini.',
-                    'meta' => [
-                        'required_months' => $minMonths,
-                        'current_months' => (int) $monthsWorked,
-                        'join_date' => $employee->join_date,
-                    ]
-                ], 422);
-            }
-        }
-
-        // Cek Attachment Wajib?
+        // Cek Attachment Wajib
         if ($leaveType->requires_file && !$request->hasFile('attachment')) {
-            return response()->json(['message' => 'Jenis cuti ini mewajibkan upload lampiran (Surat Dokter).'], 422);
-        }
-
-        // 3. Cek Saldo (Jika tipe cuti memotong kuota)
-        if ($leaveType->deducts_quota) {
-            $year = $start->year;
-            $balance = LeaveBalance::where('employee_id', $employee->id)
-                ->where('leave_type_id', $leaveTypeId)
-                ->where('year', $year)
-                ->first();
-
-            if (!$balance) {
-                return response()->json(['message' => "Saldo cuti tahun $year belum tersedia. Hubungi HRD."], 422);
-            }
-
-            if ($balance->remaining < $duration) {
-                return response()->json([
-                    'message' => 'Sisa saldo cuti tidak mencukupi.',
-                    'meta' => [
-                        'remaining' => $balance->remaining,
-                        'requested' => $duration
-                    ]
-                ], 422);
-            }
+            return response()->json(['message' => 'Wajib upload lampiran untuk jenis cuti ini.'], 422);
         }
 
         try {
@@ -159,35 +157,31 @@ class LeaveRequestController extends Controller
             $attachmentPath = null;
             if ($request->hasFile('attachment')) {
                 $attachmentPath = $request->file('attachment')
-                    ->store('leave_attachments/' . $employee->tenant_id . '/' .
-                        date('Y-m'), 'public');
+                    ->store("leave_attachments/{$employee->tenant_id}/" . date('Y-m'), 'public');
             }
 
             $leaveRequest = LeaveRequest::create([
                 'tenant_id' => $employee->tenant_id,
                 'employee_id' => $employee->id,
-                'leave_type_id' => $leaveTypeId,
-                'start_date' => $startDate,
-                'end_date' => $endDate,
+                'leave_type_id' => $request->leave_type_id,
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
                 'duration_days' => $duration,
                 'reason' => $request->reason,
                 'attachment' => $attachmentPath,
-                'status' => 'pending', // Default Pending
+                'status' => 'pending',
             ]);
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Pengajuan cuti berhasil dikirim.',
+                'message' => 'Pengajuan berhasil dikirim.',
                 'data' => $leaveRequest
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'message' => 'Terjadi kesalahan sistem.',
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
         }
     }
 
@@ -196,58 +190,70 @@ class LeaveRequestController extends Controller
         $user = $request->user();
         $employee = $user->employee;
 
-        // 1. Cari Data & Cek Kepemilikan
         $leaveRequest = LeaveRequest::where('id', $id)
-            ->where('employee_id', $user->employee->id) // Pastikan punya dia sendiri
+            ->where('employee_id', $employee->id)
             ->first();
 
-        if (!$leaveRequest) {
-            return response()->json(['message' => 'Pengajuan tidak ditemukan'], 404);
-        }
+        if (!$leaveRequest) return response()->json(['message' => 'Pengajuan tidak ditemukan'], 404);
 
-        // 2. Cuma boleh edit kalau status masih Pending
         if ($leaveRequest->status !== 'pending') {
-            return response()->json([
-                'message' => 'Tidak dapat mengubah data. Status pengajuan sudah diproses (' . $leaveRequest->status . ')'
-            ], 403);
+            return response()->json(['message' => 'Pengajuan yang sudah diproses tidak bisa diedit.'], 403);
         }
 
-        // 3. Validasi Input Form
-        $request->validate([
+        $validator = Validator::make($request->all(), [
             'leave_type_id' => 'required|exists:leave_types,id',
-            'start_date'    => 'required|date',
-            'end_date'      => 'required|date|after_or_equal:start_date',
-            'reason'        => 'required|string|max:255',
-            'attachment'    => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'reason' => 'required|string|max:500',
+            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
         ]);
 
-        // 4. Update File Lampiran (Jika ada upload baru)
-        if ($request->hasFile('attachment')) {
-            // Hapus file lama
-            if ($leaveRequest->attachment) {
-                Storage::disk('public')->delete($leaveRequest->attachment);
-            }
-            // Simpan file baru
-            $path = $request->file('attachment')->store('leave_attachments/' . $employee->tenant_id . '/' .
-                date('Y-m'), 'public');
-            $leaveRequest->attachment = $path;
+        if ($validator->fails()) return response()->json(['errors' => $validator->errors()], 422);
+
+        // Kita exclude ID sendiri biar gak overlap sama diri sendiri
+        $logicCheck = $this->validateLeaveLogic(
+            $employee,
+            $request->leave_type_id,
+            $request->start_date,
+            $request->end_date,
+            $leaveRequest->id // Exclude ID
+        );
+
+        if (isset($logicCheck['error'])) {
+            return response()->json(['message' => $logicCheck['error']], 422);
         }
 
-        // 5. Update Data Lainnya
-        $leaveRequest->update([
-            'leave_type_id' => $request->leave_type_id,
-            'start_date'    => $request->start_date,
-            'end_date'      => $request->end_date,
-            'reason'        => $request->reason,
-        ]);
+        $duration = $logicCheck['duration'];
 
-        return response()->json([
-            'message' => 'Pengajuan cuti berhasil diperbarui',
-            'data' => $leaveRequest
-        ]);
+        try {
+            DB::beginTransaction();
+
+            // Update Attachment
+            if ($request->hasFile('attachment')) {
+                if ($leaveRequest->attachment) {
+                    Storage::disk('public')->delete($leaveRequest->attachment);
+                }
+                $leaveRequest->attachment = $request->file('attachment')
+                    ->store("leave_attachments/{$employee->tenant_id}/" . date('Y-m'), 'public');
+            }
+
+            $leaveRequest->update([
+                'leave_type_id' => $request->leave_type_id,
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
+                'duration_days' => $duration,
+                'reason' => $request->reason,
+            ]);
+
+            DB::commit();
+
+            return response()->json(['success' => true, 'message' => 'Pengajuan berhasil diperbarui.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+        }
     }
 
-    // BATALKAN CUTI (DELETE/CANCEL)
     public function destroy(Request $request, $id)
     {
         $employee = $request->user()->employee;
@@ -256,25 +262,33 @@ class LeaveRequestController extends Controller
             ->where('employee_id', $employee->id)
             ->first();
 
-        if (!$leaveRequest) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Data tidak ditemukan.'
-            ], 404);
-        }
+        if (!$leaveRequest) return response()->json(['message' => 'Data tidak ditemukan.'], 404);
 
         if ($leaveRequest->status !== 'pending') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pengajuan tidak dapat dibatalkan karena sudah diproses (Disetujui/Ditolak)'
-            ], 403);
+            return response()->json(['message' => 'Hanya pengajuan pending yang bisa dibatalkan.'], 403);
+        }
+
+        // Hapus file attachment fisik jika ada
+        if ($leaveRequest->attachment) {
+            Storage::disk('public')->delete($leaveRequest->attachment);
         }
 
         $leaveRequest->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Pengajuan cuti berhasil dibatalkan.'
-        ]);
+        return response()->json(['success' => true, 'message' => 'Pengajuan berhasil dibatalkan.']);
+    }
+
+    // Helper Label Status (Biar di Flutter gak ribet if-else string)
+    private function getStatusLabel($status)
+    {
+        return match ($status) {
+            'pending' => 'Menunggu Persetujuan',
+            'approved_by_supervisor' => 'Disetujui Supervisor',
+            'approved_by_manager' => 'Disetujui Manager',
+            'approved_by_hr' => 'Disetujui HRD (Final)',
+            'rejected' => 'Ditolak',
+            'cancelled' => 'Dibatalkan',
+            default => 'Unknown',
+        };
     }
 }
