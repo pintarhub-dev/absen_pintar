@@ -180,7 +180,7 @@ class AttendanceController extends Controller
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'latitude' => 'required',
             'longitude' => 'required',
-            'image' => 'required|image|max:5120', // Max 5MB
+            'image' => 'required|image|max:2048', // Max 2MB
         ]);
 
         if ($validator->fails()) {
