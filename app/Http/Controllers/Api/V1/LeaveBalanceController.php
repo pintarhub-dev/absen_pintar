@@ -17,21 +17,24 @@ class LeaveBalanceController extends Controller
             return response()->json(['message' => 'Data karyawan tidak ditemukan.'], 404);
         }
 
-        // Ambil saldo tahun ini
         $currentYear = now()->year;
 
+        // Ambil saldo, sekalian cek jika ada saldo tahun depan (opsional)
+        // Kita filter tahun ini saja sesuai request
         $balances = LeaveBalance::with('leaveType')
             ->where('employee_id', $employee->id)
             ->where('year', $currentYear)
             ->get()
             ->map(function ($balance) {
                 return [
+                    'id' => $balance->id, // Penting buat referensi update
                     'leave_type_name' => $balance->leaveType->name,
                     'code' => $balance->leaveType->code,
-                    'entitlement' => $balance->entitlement, // Jatah Awal
-                    'taken' => $balance->taken,             // Sudah Dipakai
-                    'remaining' => $balance->remaining,     // Sisa
-                    'deducts_quota' => $balance->leaveType->deducts_quota, // Info: Potong kuota gak?
+                    'entitlement' => (int) $balance->entitlement,
+                    'carried_over' => (int) $balance->carried_over,
+                    'taken' => (int) $balance->taken,
+                    'remaining' => (int) $balance->remaining, // Ini otomatis dari Virtual Column
+                    'deducts_quota' => (bool) $balance->leaveType->deducts_quota,
                 ];
             });
 
