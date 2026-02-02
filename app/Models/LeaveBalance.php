@@ -14,6 +14,16 @@ class LeaveBalance extends Model
 
     protected $guarded = ['id'];
 
+    protected $fillable = [
+        'tenant_id ',
+        'employee_id',
+        'leave_type_id',
+        'year',
+        'entitlement',
+        'carried_over',
+        'taken'
+    ];
+
     public function employee()
     {
         return $this->belongsTo(Employee::class);
