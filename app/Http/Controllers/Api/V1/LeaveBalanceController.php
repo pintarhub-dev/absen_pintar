@@ -28,6 +28,7 @@ class LeaveBalanceController extends Controller
             ->map(function ($balance) {
                 return [
                     'id' => $balance->id, // Penting buat referensi update
+                    'leave_type_id' => $balance->leave_type_id,
                     'leave_type_name' => $balance->leaveType->name,
                     'code' => $balance->leaveType->code,
                     'entitlement' => (int) $balance->entitlement,
