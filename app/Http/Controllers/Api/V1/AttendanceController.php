@@ -21,11 +21,11 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
 
-        // Pastikan relasi employee diload biar hemat query & variabel tersedia
-        // Load: workLocation (buat timezone), shift (buat durasi break)
-        $employee = $user->employee->load(['workLocation', 'attendanceSummaries.shift']);
+        // 1. Load relasi Employee seperlunya saja (Lokasi & Shift Master)
+        // Jangan load attendanceSummaries disini, berat!
+        $employee = $user->employee->load(['workLocation', 'shift']);
 
-        // 1. Validasi Input
+        // Validasi
         $request->validate([
             'month' => 'nullable|integer|min:1|max:12',
             'year'  => 'nullable|integer|min:2020|max:' . (date('Y') + 1),
@@ -36,14 +36,13 @@ class AttendanceController extends Controller
 
         // 2. Query Data
         $histories = AttendanceSummary::where('employee_id', $employee->id)
-            ->with(['shift']) // Eager load shift snapshot di summary (jika ada relasinya)
+            ->with(['shift']) // Eager load relasi shift pada summary
             ->whereMonth('date', $month)
             ->whereYear('date', $year)
             ->orderBy('date', 'desc')
             ->get()
             ->map(function ($item) use ($employee) {
 
-                // A. LOGIC TIMEZONE
                 $timezone = $employee->workLocation->timezone ?? 'Asia/Jakarta';
                 $clockIn  = $item->clock_in ? Carbon::parse($item->clock_in)->setTimezone($timezone) : null;
                 $clockOut = $item->clock_out ? Carbon::parse($item->clock_out)->setTimezone($timezone) : null;
@@ -51,58 +50,55 @@ class AttendanceController extends Controller
                 $workHoursStr = '-';
                 $actualMinutes = 0;
 
-                // B. HITUNG JAM KERJA BERSIH
                 if ($clockIn && $clockOut) {
-                    // 1. Hitung selisih kotor (Gross)
+                    // A. Hitung Kotor
                     $grossMinutes = $clockIn->diffInMinutes($clockOut);
 
-                    // 2. Ambil Durasi Istirahat (Break)
-                    // Priority: Ambil dari snapshot shift di summary (jika history shift berubah),
-                    // kalau null, ambil dari master shift saat ini.
-                    $shiftSnapshot = $item->shift ?? $employee->shift;
-                    $breakMinutes = $shiftSnapshot ? $shiftSnapshot->break_duration_minutes : 60; // Default 60 menit kalau shift null
+                    // B. Tentukan Durasi Break
+                    // Prioritas: Shift yang nempel di absen -> Shift Master -> 0 (Jangan 60)
+                    $shiftUsed = $item->shift ?? $employee->shift;
+                    $breakMinutes = $shiftUsed ? $shiftUsed->break_duration_minutes : 0;
 
-                    // C. LOGIC FLEXIBLE SHIFT
-                    if ($shiftSnapshot && $shiftSnapshot->is_flexible) {
-                        // Kalau flexible, biasanya istirahat itu 'terserah' atau 'auto deduct'.
-                        // Disini kita asumsikan tetap dipotong break_duration jika kerja > 4 jam (misal).
-                        // Atau simpelnya: Tetap kurangi break duration sesuai settingan shift.
-                        $deductedBreak = $breakMinutes;
-                    } else {
-                        // Shift Normal
+                    // C. LOGIC: Kapan harus potong istirahat?
+                    // Rule: Potong hanya jika kerja kotor > 4 jam (240 menit)
+                    // ATAU grossMinutes > breakMinutes (biar gak minus)
+                    $deductedBreak = 0;
+
+                    // Logic ini bisa disesuaikan dengan peraturan perusahaan
+                    // Contoh: Kalau kerja > 4 jam, baru kena potong istirahat
+                    if ($grossMinutes >= 240 && $breakMinutes > 0) {
                         $deductedBreak = $breakMinutes;
                     }
 
-                    // 3. Hitung Net Minutes (Gross - Break)
-                    // Pastikan tidak minus (misal baru kerja 30 menit terus checkout)
+                    // D. Hitung Bersih
                     $actualMinutes = max(0, $grossMinutes - $deductedBreak);
 
-                    // 4. Format ke Jam:Menit
+                    // Format String
                     $hours   = intdiv($actualMinutes, 60);
                     $minutes = $actualMinutes % 60;
                     $workHoursStr = sprintf('%02d Jam %02d Menit', $hours, $minutes);
                 }
 
-                // D. FORMAT OUTPUT JSON
                 return [
                     'id'            => $item->id,
                     'date'          => $item->date,
                     'day_name'      => Carbon::parse($item->date)->locale('id')->isoFormat('dddd'),
-                    'shift_name'    => $item->shift->name ?? 'N/A', // Info Shift
+                    'shift_name'    => $item->shift->name ?? $employee->shift->name ?? 'Non-Shift',
                     'clock_in'      => $clockIn ? $clockIn->format('H:i') : '-',
                     'clock_out'     => $clockOut ? $clockOut->format('H:i') : '-',
                     'status'        => $item->status,
                     'late_minutes'  => $item->late_minutes,
                     'is_late'       => $item->late_minutes > 0,
-                    'work_hours'    => $workHoursStr, // String "08 Jam 30 Menit"
-                    'work_minutes'  => $actualMinutes, // Raw data buat grafik/perhitungan frontend
+                    'work_hours'    => $workHoursStr,
+                    'work_minutes'  => $actualMinutes,
+                    'break_deducted' => isset($deductedBreak) ? $deductedBreak : 0,
                 ];
             });
 
         return response()->json([
             'meta' => [
-                'month' => $month,
-                'year' => $year,
+                'month' => (int)$month,
+                'year' => (int)$year,
                 'total_attendance' => $histories->whereIn('status', ['present', 'late'])->count(),
                 'total_late' => $histories->where('is_late', true)->count(),
                 'total_work_hours' => floor($histories->sum('work_minutes') / 60),
