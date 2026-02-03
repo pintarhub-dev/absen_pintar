@@ -154,6 +154,27 @@ class LeaveRequestController extends Controller
         try {
             DB::beginTransaction();
 
+            // 1. POTONG SALDO DI AWAL (BOOKING QUOTA)
+            if ($leaveType->deducts_quota) {
+                $year = Carbon::parse($request->start_date)->year;
+
+                // Lock row biar gak balapan (Race Condition)
+                $balance = LeaveBalance::where('employee_id', $employee->id)
+                    ->where('leave_type_id', $request->leave_type_id)
+                    ->where('year', $year)
+                    ->lockForUpdate()
+                    ->first();
+
+                // Validasi ulang
+                if (!$balance || $balance->remaining < $duration) {
+                    throw new \Exception('Saldo tidak mencukupi saat proses booking.');
+                }
+
+                // Eksekusi Potong
+                $balance->decrement('remaining', $duration);
+                $balance->increment('taken', $duration);
+            }
+
             $attachmentPath = null;
             if ($request->hasFile('attachment')) {
                 $attachmentPath = $request->file('attachment')
@@ -223,12 +244,53 @@ class LeaveRequestController extends Controller
             return response()->json(['message' => $logicCheck['error']], 422);
         }
 
-        $duration = $logicCheck['duration'];
+        // Ambil Data Lama untuk Refund
+        $oldDuration = $leaveRequest->duration_days;
+        $oldLeaveTypeId = $leaveRequest->leave_type_id;
+        $oldYear = Carbon::parse($leaveRequest->start_date)->year;
+        $oldDeducts = $leaveRequest->leaveType->deducts_quota;
+
+        // Hitung Durasi Baru
+        $newStart = Carbon::parse($request->start_date);
+        $newEnd = Carbon::parse($request->end_date);
+        $newDuration = $newStart->diffInDays($newEnd) + 1;
+        $newLeaveType = LeaveType::find($request->leave_type_id);
+        $newYear = $newStart->year;
 
         try {
             DB::beginTransaction();
 
-            // Update Attachment
+            // 1. REFUND SALDO LAMA DULU
+            if ($oldDeducts) {
+                $oldBalance = LeaveBalance::where('employee_id', $employee->id)
+                    ->where('leave_type_id', $oldLeaveTypeId)
+                    ->where('year', $oldYear)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($oldBalance) {
+                    $oldBalance->increment('remaining', $oldDuration);
+                    $oldBalance->decrement('taken', $oldDuration);
+                }
+            }
+
+            // 2. POTONG SALDO BARU
+            if ($newLeaveType->deducts_quota) {
+                $newBalance = LeaveBalance::where('employee_id', $employee->id)
+                    ->where('leave_type_id', $newLeaveType->id)
+                    ->where('year', $newYear)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$newBalance || $newBalance->remaining < $newDuration) {
+                    throw new \Exception('Saldo tidak mencukupi untuk perubahan jadwal ini.');
+                }
+
+                $newBalance->decrement('remaining', $newDuration);
+                $newBalance->increment('taken', $newDuration);
+            }
+
+            // Update Data
             if ($request->hasFile('attachment')) {
                 if ($leaveRequest->attachment) {
                     Storage::disk('public')->delete($leaveRequest->attachment);
@@ -241,12 +303,11 @@ class LeaveRequestController extends Controller
                 'leave_type_id' => $request->leave_type_id,
                 'start_date' => $request->start_date,
                 'end_date' => $request->end_date,
-                'duration_days' => $duration,
+                'duration_days' => $newDuration,
                 'reason' => $request->reason,
             ]);
 
             DB::commit();
-
             return response()->json(['success' => true, 'message' => 'Pengajuan berhasil diperbarui.']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -257,25 +318,41 @@ class LeaveRequestController extends Controller
     public function destroy(Request $request, $id)
     {
         $employee = $request->user()->employee;
-
-        $leaveRequest = LeaveRequest::where('id', $id)
-            ->where('employee_id', $employee->id)
-            ->first();
+        $leaveRequest = LeaveRequest::with('leaveType')->where('id', $id)->where('employee_id', $employee->id)->first();
 
         if (!$leaveRequest) return response()->json(['message' => 'Data tidak ditemukan.'], 404);
+        if ($leaveRequest->status !== 'pending') return response()->json(['message' => 'Tidak bisa membatalkan.'], 403);
 
-        if ($leaveRequest->status !== 'pending') {
-            return response()->json(['message' => 'Hanya pengajuan pending yang bisa dibatalkan.'], 403);
+        try {
+            DB::beginTransaction();
+
+            // 1. REFUND SALDO (Kembalikan Booking)
+            if ($leaveRequest->leaveType->deducts_quota) {
+                $year = Carbon::parse($leaveRequest->start_date)->year;
+                $balance = LeaveBalance::where('employee_id', $employee->id)
+                    ->where('leave_type_id', $leaveRequest->leave_type_id)
+                    ->where('year', $year)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($balance) {
+                    $balance->increment('remaining', $leaveRequest->duration_days);
+                    $balance->decrement('taken', $leaveRequest->duration_days);
+                }
+            }
+
+            // Delete File & Record
+            if ($leaveRequest->attachment) {
+                Storage::disk('public')->delete($leaveRequest->attachment);
+            }
+            $leaveRequest->delete();
+
+            DB::commit();
+            return response()->json(['success' => true, 'message' => 'Pengajuan berhasil dibatalkan.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
         }
-
-        // Hapus file attachment fisik jika ada
-        if ($leaveRequest->attachment) {
-            Storage::disk('public')->delete($leaveRequest->attachment);
-        }
-
-        $leaveRequest->delete();
-
-        return response()->json(['success' => true, 'message' => 'Pengajuan berhasil dibatalkan.']);
     }
 
     // Helper Label Status (Biar di Flutter gak ribet if-else string)

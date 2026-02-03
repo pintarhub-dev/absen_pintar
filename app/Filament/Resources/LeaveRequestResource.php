@@ -59,6 +59,8 @@ class LeaveRequestResource extends Resource
                             )
                             ->searchable(['full_name', 'nik'])
                             ->preload()
+                            ->disabledOn('edit')
+                            ->dehydrated()
                             ->required(),
 
                         Forms\Components\Select::make('leave_type_id')
@@ -440,38 +442,13 @@ class LeaveRequestResource extends Resource
                     })
                     ->action(function (LeaveRequest $record) {
                         DB::transaction(function () use ($record) {
-                            $leaveType = $record->leaveType;
-                            // AMBIL STATUS LANGSUNG DARI KATEGORI                            // Gak perlu lagi str_contains, langsung ambil value kolom 'category'
-                            $attendanceStatus = $record->leaveType->category;
-                            // Validasi Fail-safe (Jaga-jaga kalau null, default ke 'leave')
-                            if (!$attendanceStatus) {
-                                $attendanceStatus = 'leave';
-                            }
-
-                            // Potong Saldo
-                            if ($leaveType->deducts_quota) {
-                                $year = Carbon::parse($record->start_date)->year;
-                                $balance = LeaveBalance::where('employee_id', $record->employee_id)
-                                    ->where('leave_type_id', $record->leave_type_id)
-                                    ->where('year', $year)
-                                    ->lockForUpdate()
-                                    ->first();
-
-                                if (!$balance || $balance->remaining < $record->duration_days) {
-                                    Notification::make()->title('Gagal')->body('Saldo tidak cukup.')->danger()->send();
-                                    throw new \Exception('Saldo Kurang');
-                                }
-                                $balance->increment('taken', $record->duration_days);
-                            }
-
-                            // Update Status Request
+                            $attendanceStatus = $record->leaveType->category ?? 'leave';
                             $record->update([
                                 'status' => 'approved_by_hr',
                                 'approved_by' => auth()->user()->id,
                                 'approved_at' => now(),
                             ]);
 
-                            // --- 4. Generate Absen ---
                             $startDate = Carbon::parse($record->start_date);
                             $endDate = Carbon::parse($record->end_date);
 
@@ -503,7 +480,6 @@ class LeaveRequestResource extends Resource
 
                                     if ($assignment) {
                                         $patternId = $assignment->schedule_pattern_id;
-                                        // Asumsi Model Assignment punya method getShiftOnDate
                                         $shift = $assignment->getShiftOnDate($currentDate);
 
                                         if ($shift) {
@@ -574,12 +550,29 @@ class LeaveRequestResource extends Resource
                         return false;
                     })
                     ->action(function (LeaveRequest $record, array $data) {
-                        $record->update([
-                            'status' => 'rejected',
-                            'rejection_reason' => $data['rejection_reason'],
-                            'approved_by' => auth()->user()->id,
-                            'approved_at' => now(),
-                        ]);
+                        DB::transaction(function () use ($record, $data) {
+                            // 1. REFUND SALDO (Jika tipe cuti memotong kuota)
+                            if ($record->leaveType->deducts_quota) {
+                                $year = Carbon::parse($record->start_date)->year;
+                                $balance = LeaveBalance::where('employee_id', $record->employee_id)
+                                    ->where('leave_type_id', $record->leave_type_id)
+                                    ->where('year', $year)
+                                    ->lockForUpdate()
+                                    ->first();
+
+                                if ($balance) {
+                                    $balance->decrement('taken', $record->duration_days);
+                                }
+                            }
+
+                            // 2. Update Status
+                            $record->update([
+                                'status' => 'rejected',
+                                'rejection_reason' => $data['rejection_reason'],
+                                'approved_by' => auth()->user()->id,
+                                'approved_at' => now(),
+                            ]);
+                        });
                         Notification::make()->title('Permohonan Ditolak')->danger()->send();
                     }),
             ]);
