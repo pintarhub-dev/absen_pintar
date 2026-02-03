@@ -170,8 +170,6 @@ class LeaveRequestController extends Controller
                     throw new \Exception('Saldo tidak mencukupi saat proses booking.');
                 }
 
-                // Eksekusi Potong
-                $balance->decrement('remaining', $duration);
                 $balance->increment('taken', $duration);
             }
 
@@ -269,7 +267,6 @@ class LeaveRequestController extends Controller
                     ->first();
 
                 if ($oldBalance) {
-                    $oldBalance->increment('remaining', $oldDuration);
                     $oldBalance->decrement('taken', $oldDuration);
                 }
             }
@@ -286,7 +283,6 @@ class LeaveRequestController extends Controller
                     throw new \Exception('Saldo tidak mencukupi untuk perubahan jadwal ini.');
                 }
 
-                $newBalance->decrement('remaining', $newDuration);
                 $newBalance->increment('taken', $newDuration);
             }
 
@@ -336,7 +332,6 @@ class LeaveRequestController extends Controller
                     ->first();
 
                 if ($balance) {
-                    $balance->increment('remaining', $leaveRequest->duration_days);
                     $balance->decrement('taken', $leaveRequest->duration_days);
                 }
             }
