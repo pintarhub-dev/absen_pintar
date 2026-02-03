@@ -167,7 +167,7 @@ class LeaveRequestController extends Controller
 
                 // Validasi ulang
                 if (!$balance || $balance->remaining < $duration) {
-                    throw new \Exception('Saldo tidak mencukupi saat proses booking.');
+                    throw new \Exception('Saldo tidak mencukupi saat proses pengajuan.');
                 }
 
                 $balance->increment('taken', $duration);
