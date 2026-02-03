@@ -46,9 +46,10 @@ class LeaveBalanceController extends Controller
 
             return [
                 'id' => $balance ? $balance->id : null,
-                'leave_type_id' => $type->id, // PENTING: Ini yang dikirim saat submit form
+                'leave_type_id' => $type->id,
                 'leave_type_name' => $type->name,
                 'code' => $type->code,
+                'category' => $type->category,
                 'entitlement' => $balance ? (int)$balance->entitlement : 0,
                 'carried_over' => $balance ? (int) $balance->carried_over : 0,
                 'taken' => $balance ? (int)$balance->taken : 0,
