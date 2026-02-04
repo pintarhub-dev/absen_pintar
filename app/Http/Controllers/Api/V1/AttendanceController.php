@@ -472,7 +472,7 @@ class AttendanceController extends Controller
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $filename = 'clock_in_' . $employee->id . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $folder = 'attendance/' . $employee->tenant_id . '/' . date('Y-m');
+            $folder = 'attendance/' . $employee->tenant_id . '/' . date('Y-m') . '/' . $employee->id;
             $imagePath = $file->storeAs($folder, $filename, 'public');
         }
 
@@ -564,7 +564,7 @@ class AttendanceController extends Controller
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $filename = 'clock_out_' . $employee->id . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $folder = 'attendance/' . $employee->tenant_id . '/' . $now->format('Y-m');
+            $folder = 'attendance/' . $employee->tenant_id . '/' . $now->format('Y-m') . '/' . $employee->id;
             $imagePath = $file->storeAs($folder, $filename, 'public');
         }
 

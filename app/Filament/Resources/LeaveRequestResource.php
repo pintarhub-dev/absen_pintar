@@ -225,7 +225,7 @@ class LeaveRequestResource extends Resource
 
                                 return 'leave_attachments/' .
                                     $employee->tenant_id . '/' .
-                                    date('Y-m');
+                                    date('Y-m') . '/' . $employeeId;
                             })
                             // Validasi: Wajib jika Tipe Cuti mengharuskan
                             ->required(
