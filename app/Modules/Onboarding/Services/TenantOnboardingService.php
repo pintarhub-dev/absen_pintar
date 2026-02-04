@@ -20,6 +20,7 @@ class TenantOnboardingService
                 'slug' => Str::slug($data['name']),
                 'referral' => Str::random(5),
                 'subscription_plan' => 'free',
+                'subscription_expired_at' => now()->addMonth(),
                 'status' => 'active',
                 'created_by' => $user->id,
                 'created_at' => now(),
