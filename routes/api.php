@@ -29,32 +29,42 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
         Route::get('user/me', [AuthController::class, 'me']);
-        Route::post('user/update', [AuthController::class, 'updateProfile']);
-        Route::post('user/password', [AuthController::class, 'updatePassword']);
 
-        Route::prefix('attendance')->controller(AttendanceController::class)->group(function () {
-            Route::get('current-status', 'currentStatus');
-            Route::get('history', 'history');
-            Route::post('clock-in', 'clockIn');
-            Route::post('clock-out', 'clockOut');
+        Route::middleware('check.subscription')->group(function () {
+            Route::post('user/update', [AuthController::class, 'updateProfile']);
+            Route::post('user/password', [AuthController::class, 'updatePassword']);
         });
 
-        Route::get('/leave-types', [LeaveTypeController::class, 'index']);
+        Route::middleware('check.subscription')->group(function () {
+            Route::prefix('attendance')->controller(AttendanceController::class)->group(function () {
+                Route::get('current-status', 'currentStatus');
+                Route::get('history', 'history');
+                Route::post('clock-in', 'clockIn');
+                Route::post('clock-out', 'clockOut');
+            });
+        });
 
-        Route::get('/leave-balances', [LeaveBalanceController::class, 'index']);
+        Route::middleware('check.subscription')->group(function () {
+            Route::get('/leave-types', [LeaveTypeController::class, 'index']);
+            Route::get('/leave-balances', [LeaveBalanceController::class, 'index']);
+        });
 
-        Route::prefix('leave')->controller(LeaveRequestController::class)->group(function () {
-            Route::get('requests', 'index');
-            Route::post('requests', 'store');
-            Route::put('requests/{id}', 'update');
-            Route::delete('requests/{id}', 'destroy');
+        Route::middleware('check.subscription')->group(function () {
+            Route::prefix('leave')->controller(LeaveRequestController::class)->group(function () {
+                Route::get('requests', 'index');
+                Route::post('requests', 'store');
+                Route::put('requests/{id}', 'update');
+                Route::delete('requests/{id}', 'destroy');
+            });
         });
 
         // FITUR UNTUK KEMBANGAN MASA DEPAN
+        // Route::middleware('check.subscription')->group(function () {
         // Route::prefix('overtimes')->controller(OvertimeRequestController::class)->group(function () {
         //     Route::get('requests', 'index');
         //     Route::post('requests', 'store');
         //     Route::delete('requests/{id}', 'destroy');
+        // });
         // });
     });
 });
