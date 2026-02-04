@@ -84,6 +84,12 @@ class User extends Authenticatable implements FilamentUser, HasName, MustVerifyE
         return $this->belongsTo(Tenant::class);
     }
 
+    // Helper untuk cek apakah user ini super admin
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'superadmin';
+    }
+
     public function canAccessPanel(Panel $panel): bool
     {
         // Biarkan Middleware EnsureTenantSetup yang menangani redirect-nya.
