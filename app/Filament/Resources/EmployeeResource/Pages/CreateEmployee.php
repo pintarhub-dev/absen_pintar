@@ -8,10 +8,27 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Filament\Actions;
 use Filament\Resources\Pages\CreateRecord;
+use Filament\Notifications\Notification;
 
 class CreateEmployee extends CreateRecord
 {
     protected static string $resource = EmployeeResource::class;
+
+    public function mount(): void
+    {
+        $tenant = auth()->user()->tenant;
+        if ($tenant && ! $tenant->has_active_subscription) {
+            Notification::make()
+                ->title('Akses Ditolak')
+                ->body('Masa berlangganan habis. Silakan upgrade/bayar tagihan untuk menambah karyawan.')
+                ->danger()
+                ->send();
+
+            $this->redirect($this->getResource()::getUrl('index'));
+            return;
+        }
+        parent::mount();
+    }
 
     protected function getRedirectUrl(): string
     {
