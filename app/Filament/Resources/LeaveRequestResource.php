@@ -26,6 +26,7 @@ use Carbon\Carbon;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Closure;
+use App\Services\FCMService;
 
 use function Laravel\Prompts\search;
 
@@ -511,6 +512,16 @@ class LeaveRequestResource extends Resource
                                 $startDate->addDay();
                             }
                         });
+
+                        $employeeUser = $record->employee->user;
+                        if ($employeeUser && $employeeUser->fcm_token) {
+                            FCMService::send(
+                                $employeeUser->fcm_token,
+                                "Cuti Disetujui! ✅",
+                                "Pengajuan cuti Anda untuk tanggal " . $record->start_date->format('d M') . " telah disetujui HRD.",
+                                ['type' => $record->leaveType->category, 'id' => $record->id]
+                            );
+                        }
 
                         Notification::make()->title('Permohonan Disetujui Final')->success()->send();
                     }),
