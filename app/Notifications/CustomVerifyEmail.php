@@ -30,7 +30,7 @@ class CustomVerifyEmail extends Notification
 
         // TAMPILAN EMAIL
         return (new MailMessage)
-            ->subject('Verifikasi Email - Kerja Pintar') // Subject Email
+            ->subject('Verifikasi Email - Absen Pintar') // Subject Email
             ->greeting('Halo, ' . $notifiable->email . '!')
             ->line('Terima kasih telah mendaftar. Silakan klik tombol di bawah untuk mengaktifkan akun Anda. Link ini hanya berlaku 1 Jam dari saat Email dikirim')
             ->action('Verifikasi Akun Saya', $verificationUrl) // Tombol

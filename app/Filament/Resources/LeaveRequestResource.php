@@ -514,14 +514,41 @@ class LeaveRequestResource extends Resource
                         });
 
                         $employeeUser = $record->employee->user;
-                        if ($employeeUser && $employeeUser->fcm_token) {
-                            FCMService::send(
-                                $employeeUser->fcm_token,
-                                "Cuti Disetujui! ✅",
-                                "Pengajuan cuti Anda untuk tanggal " . $record->start_date->format('d M') . " telah disetujui HRD.",
-                                ['type' => $record->leaveType->category, 'id' => $record->id]
-                            );
+                        if ($employeeUser) {
+                            // 1. SIAPKAN DATA PESAN
+                            $title = "Cuti Disetujui ✅";
+                            $body = "Pengajuan cuti tanggal " . $record->start_date->format('d M') . " disetujui.";
+                            $dataPayload = [
+                                'type' =>  $record->leaveType->category,
+                                'id' => (string) $record->id
+                            ];
+
+                            // 2. SIMPAN KE DATABASE
+                            // Kita pakai method create manual biar cepat (tanpa bikin Class Notification terpisah)
+                            $employeeUser->notifications()->create([
+                                'id' => \Illuminate\Support\Str::uuid(), // ID Unik
+                                'type' => 'App\Notifications\LeaveStatusChanged', // Penanda jenis notif
+                                'data' => [
+                                    'title' => $title,
+                                    'body'  => $body,
+                                    'type'  => $dataPayload['type'],
+                                    'target_id' => $dataPayload['id'], // ID Cuti
+                                    'icon'  => 'check_circle', // Opsional: buat icon di flutter
+                                    'color' => 'green'         // Opsional
+                                ],
+                                'read_at' => null, // Belum dibaca
+                            ]);
+
+                            if ($employeeUser->fcm_token) {
+                                FCMService::send(
+                                    $employeeUser->fcm_token,
+                                    $title,
+                                    $body,
+                                    $dataPayload
+                                );
+                            }
                         }
+
 
                         Notification::make()->title('Permohonan Disetujui Final')->success()->send();
                     }),
