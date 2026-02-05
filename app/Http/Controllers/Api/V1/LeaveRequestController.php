@@ -117,6 +117,42 @@ class LeaveRequestController extends Controller
         ]);
     }
 
+    public function detail($id)
+    {
+        $user = auth()->user();
+
+        $leaveRequest = LeaveRequest::with('leaveType')
+            ->where('id', $id)
+            ->where('employee_id', $user->employee->id)
+            ->first();
+
+        if (!$leaveRequest) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data cuti tidak ditemukan atau Anda tidak memiliki akses.',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $leaveRequest->id,
+                'status' => $leaveRequest->status,
+                'start_date' => $leaveRequest->start_date->format('Y-m-d'),
+                'end_date' => $leaveRequest->end_date->format('Y-m-d'),
+                'duration_days' => $leaveRequest->duration_days,
+                'reason' => $leaveRequest->reason,
+                'leave_type' => [
+                    'name' => $leaveRequest->leaveType->name ?? 'Cuti',
+                ],
+                'attachment_url' => $leaveRequest->attachment_path
+                    ? asset('storage/' . $leaveRequest->attachment_path)
+                    : null,
+                'created_at' => $leaveRequest->created_at->format('d M Y H:i'),
+            ]
+        ]);
+    }
+
     public function store(Request $request)
     {
         $employee = $request->user()->employee;

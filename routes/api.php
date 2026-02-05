@@ -50,6 +50,7 @@ Route::prefix('v1')->group(function () {
 
         Route::prefix('leave')->controller(LeaveRequestController::class)->group(function () {
             Route::get('requests', 'index');
+            Route::get('requests/detail/{id}', 'detail');
             Route::middleware('check.subscription')->group(function () {
                 Route::post('requests', 'store');
                 Route::put('requests/{id}', 'update');
