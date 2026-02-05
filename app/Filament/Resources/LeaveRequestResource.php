@@ -27,6 +27,7 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Closure;
 use App\Services\FCMService;
+use Illuminate\Support\Str;
 
 use function Laravel\Prompts\search;
 
@@ -519,14 +520,14 @@ class LeaveRequestResource extends Resource
                             $title = "Cuti Disetujui ✅";
                             $body = "Pengajuan cuti tanggal " . $record->start_date->format('d M') . " disetujui.";
                             $dataPayload = [
-                                'type' =>  $record->leaveType->category,
+                                'type' => $record->leaveType->category,
                                 'id' => (string) $record->id
                             ];
 
                             // 2. SIMPAN KE DATABASE
                             // Kita pakai method create manual biar cepat (tanpa bikin Class Notification terpisah)
                             $employeeUser->notifications()->create([
-                                'id' => \Illuminate\Support\Str::uuid(), // ID Unik
+                                'id' => Str::uuid(), // ID Unik
                                 'type' => 'App\Notifications\LeaveStatusChanged', // Penanda jenis notif
                                 'data' => [
                                     'title' => $title,
@@ -548,8 +549,6 @@ class LeaveRequestResource extends Resource
                                 );
                             }
                         }
-
-
                         Notification::make()->title('Permohonan Disetujui Final')->success()->send();
                     }),
 
@@ -611,6 +610,45 @@ class LeaveRequestResource extends Resource
                                 'approved_at' => now(),
                             ]);
                         });
+
+                        $employeeUser = $record->employee->user;
+
+                        if ($employeeUser) {
+                            // Siapkan Konten Pesan
+                            $title = "Pengajuan Ditolak ❌";
+                            // Masukkan alasan penolakan ke body pesan biar jelas
+                            $body = "Maaf, pengajuan cuti Anda ditolak. Alasan: " . $data['rejection_reason'];
+
+                            $dataPayload = [
+                                'type' => $record->leaveType->category,
+                                'id' => (string) $record->id // Casting ke string biar aman di FCM
+                            ];
+
+                            // A. Simpan ke Inbox Database (Lonceng Apps)
+                            $employeeUser->notifications()->create([
+                                'id' => Str::uuid(),
+                                'type' => 'App\Notifications\LeaveStatusChanged',
+                                'data' => [
+                                    'title' => $title,
+                                    'body'  => $body,
+                                    'type'  => $dataPayload['type'],
+                                    'target_id' => $dataPayload['id'],
+                                    'icon'  => 'cancel', // Icon silang buat di Flutter
+                                    'color' => 'red'     // Warna merah
+                                ],
+                                'read_at' => null,
+                            ]);
+
+                            // B. Kirim Push Notification (HP Bunyi)
+                            if ($employeeUser->fcm_token) {
+                                FCMService::send(
+                                    $employeeUser->fcm_token,
+                                    $title,
+                                    $body,
+                                    $dataPayload
+                                );
+                            }
+                        }
                         Notification::make()->title('Permohonan Ditolak')->danger()->send();
                     }),
             ]);
