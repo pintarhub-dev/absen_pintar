@@ -59,6 +59,7 @@ class User extends Authenticatable implements FilamentUser, HasName, MustVerifyE
         'role',
         'email',
         'password',
+        'fcm_token',
         'status',
         'avatar'
     ];
