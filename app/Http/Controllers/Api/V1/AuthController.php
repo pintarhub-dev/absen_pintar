@@ -224,7 +224,14 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user =  $request->user();
+        if ($user) {
+            // 1. HAPUS FCM TOKEN (Firebase)
+            // Biar server gak kirim notif ke HP ini lagi atas nama user ini.
+            $user->update(['fcm_token' => null]);
+            // 2. Hapus Token Sanctum (Session Login)
+            $user->currentAccessToken()->delete();
+        }
 
         return response()->json([
             'success' => true,
