@@ -358,36 +358,6 @@ class AttendanceController extends Controller
             $scheduleOut = $shift->end_time;
         }
 
-        // 1. Ambil Summary Hari Ini
-        $summary = AttendanceSummary::firstOrCreate(
-            [
-                'employee_id' => $employee->id,
-                'date' => $today
-            ],
-            [
-                'tenant_id' => $employee->tenant_id,
-                'schedule_id'  => $scheduleId,
-                'shift_id'  => $shiftId,
-                'schedule_in'  => $scheduleIn,
-                'schedule_out' => $scheduleOut,
-                'status' => 'alpha',
-                'late_minutes' => 0
-            ]
-        );
-
-        // 2. Cek Sesi Gantung
-        $openSession = $summary->details()->whereNull('clock_out_time')->first();
-        if ($openSession) {
-            return $this->errorResponse('Kamu masih memiliki sesi aktif. Silakan Clock Out terlebih dahulu.', 400);
-        }
-
-        // Validasi Sesi Kedua untuk Karyawan Kantor
-        if (! $employee->is_flexible_location && $summary->details()->exists()) {
-            if (!$openSession) {
-                return $this->errorResponse('Kamu karyawan kantor, hanya diperbolehkan 1x Sesi Absen per hari.', 400);
-            }
-        }
-
         // ---------------------------------------------------------
         // LOGIC LOKASI
         // ---------------------------------------------------------
@@ -433,6 +403,36 @@ class AttendanceController extends Controller
         // ---------------------------------------------------------
         // LOGIC HITUNG STATUS & KETERLAMBATAN
         // ---------------------------------------------------------
+
+        // 1. Ambil Summary Hari Ini
+        $summary = AttendanceSummary::firstOrCreate(
+            [
+                'employee_id' => $employee->id,
+                'date' => $today
+            ],
+            [
+                'tenant_id' => $employee->tenant_id,
+                'schedule_id'  => $scheduleId,
+                'shift_id'  => $shiftId,
+                'schedule_in'  => $scheduleIn,
+                'schedule_out' => $scheduleOut,
+                'status' => 'alpha',
+                'late_minutes' => 0
+            ]
+        );
+
+        // 2. Cek Sesi Gantung
+        $openSession = $summary->details()->whereNull('clock_out_time')->first();
+        if ($openSession) {
+            return $this->errorResponse('Kamu masih memiliki sesi aktif. Silakan Clock Out terlebih dahulu.', 400);
+        }
+
+        // Validasi Sesi Kedua untuk Karyawan Kantor
+        if (! $employee->is_flexible_location && $summary->details()->exists()) {
+            if (!$openSession) {
+                return $this->errorResponse('Kamu karyawan kantor, hanya diperbolehkan 1x Sesi Absen per hari.', 400);
+            }
+        }
 
         $isFirstSession = $summary->details()->count() === 0;
         $status = 'present';
