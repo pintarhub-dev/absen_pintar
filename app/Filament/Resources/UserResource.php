@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Database\Eloquent\Collection;
 use Filament\Tables\Actions\DeleteBulkAction;
+use Illuminate\Support\Facades\DB;
+use Filament\Notifications\Notification;
 
 class UserResource extends Resource
 {
@@ -191,6 +193,7 @@ class UserResource extends Resource
                         'employee' => 'Employee',
                     ]),
             ])
+
             ->actions([
     Tables\Actions\EditAction::make(),
 
@@ -199,12 +202,25 @@ class UserResource extends Resource
         ->color('danger')
         ->icon('heroicon-o-arrow-right-on-rectangle')
         ->requiresConfirmation()
-        ->visible(fn ($record) => $record->role !== 'superadmin')
-        ->action(fn () => null),
+        ->visible(fn ($record) =>
+            $record->role !== 'superadmin' &&
+            $record->id !== auth()->id()
+        )
+        ->action(function ($record) {
+            \Illuminate\Support\Facades\DB::table('sessions')
+                ->where('user_id', $record->id)
+                ->delete();
+
+            \Filament\Notifications\Notification::make()
+                ->title('User berhasil di force logout')
+                ->success()
+                ->send();
+        }),
 
     Tables\Actions\DeleteAction::make()
-        ->visible(fn($record) => $record->role !== 'superadmin'),
-])    
+        ->visible(fn ($record) => $record->role !== 'superadmin'),
+])
+
             /*
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -212,7 +228,7 @@ class UserResource extends Resource
                     ->visible(fn($record) => $record->role !== '')
             ])
                     */
-            
+
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     DeleteBulkAction::make()
